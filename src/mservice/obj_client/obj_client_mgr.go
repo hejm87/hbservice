@@ -46,6 +46,10 @@ func (p ObjectInfoSlice) Less(i, j int) bool {
 //////////////////////////////////////////////////////////
 //					ObjectClientMgr
 //////////////////////////////////////////////////////////
+
+// 名字服务在etcd的存储格式
+// 目录: /mservice/{服务名}/{host}:{port}_{seq}
+
 type ObjectClientMgr struct {
 	name				string	
 	active_clients		ObjectInfoSlice
@@ -61,8 +65,10 @@ func NewObjectClientMgr(string name) *ObjectClientMgr {
 		queue:	new(MapQueue[string]),
 		channel_notify:	make(chan *NotifyInfo, 10),
 	}
+
+
 }
 
-func (p *ObjectClientMgr) init_active_clients() error {
-
+func (p *ObjectClientMgr) init() error {
+	
 }

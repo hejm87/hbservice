@@ -9,7 +9,7 @@ const (
 	kClose		int = 0
 	kConnected	int = 1
 
-	kConnectMs			int = 1000
+	kConnectMs			int = 100
 	kMaxSendQueueSize	int = 1000
 )
 
@@ -17,11 +17,12 @@ type ObjectClient struct {
 	name		string
 	host		string
 	port		int
-	Status		int
 
 	handle				net_core.PacketHandle
 	channel_send		chan net_core.Packet
 	channel_recv_notify	chan net_core.Packet	
+
+	State		int		// 连接状态：kClose, kConnected
 
 	net.Conn
 }

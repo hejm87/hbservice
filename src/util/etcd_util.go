@@ -1,7 +1,6 @@
 package util
 
 import (
-//	"fmt"
 	"time"
 	"errors"
 	"context"
@@ -27,9 +26,9 @@ type Etcd struct {
 
 type WatchCallback func([]WatchResult)
 
-func NewEtcd(addr []string, username, password string) (*Etcd, error) {
+func NewEtcd(addrs []string, username, password string) (*Etcd, error) {
 	var etcd_conf = clientv3.Config {
-		Endpoints:		addr,
+		Endpoints:		addrs,
 		DialTimeout:	5 * time.Second,
 		TLS:			nil,
 	}
@@ -89,7 +88,7 @@ func (p *Etcd) Get(key string) (string, error) {
 }
 
 func (p *Etcd) GetWithPrefix(key_prefix string) (map[string]string, error) {
-	var kvs map[string]string
+	kvs := make(map[string]string)
 	resp, err := p.client.KV.Get(context.TODO(), key_prefix, clientv3.WithPrefix())
 	if err != nil {
 		return kvs, err
