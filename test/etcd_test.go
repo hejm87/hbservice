@@ -10,11 +10,7 @@ import (
 )
 
 func TestFlow(t *testing.T) {
-	etcd, err := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
-	if err != nil {
-		t.Error("etcd new error")
-	}
-
+	etcd := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
 	// 测试正常流程
 	if err = etcd.Put("key1", "value1"); err != nil {
 		t.Error("etcd put error")
@@ -46,10 +42,7 @@ func TestFlow(t *testing.T) {
 }
 
 func TestKeepAlive(t *testing.T) {
-	etcd, err := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
-	if err != nil {
-		t.Error("etcd new error")
-	}
+	etcd := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
 	if lease_id, err := etcd.PutWithTimeout("key2", "value2", 2); err == nil {
 		time.Sleep(1 * time.Second)
 		if err := etcd.KeepAlive(lease_id); err != nil {
@@ -77,10 +70,7 @@ func TestKeepAlive(t *testing.T) {
 }
 
 func TestWatch(t *testing.T) {
-	etcd, err := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
-	if err != nil {
-		t.Error("etcd new error")
-	}
+	etcd := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
 	if err := etcd.Put("key_watch", "value_watch"); err != nil {
 		t.Error("etcd put error")
 	}
@@ -109,11 +99,7 @@ func TestWatch(t *testing.T) {
 }
 
 func TestOther(t *testing.T) {
-	etcd, err := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
-	if err != nil {
-		t.Error("etcd new error")
-	}
-
+	etcd := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
 	if err := etcd.Put("key_other/key1", "value1"); err != nil {
 		t.Error("etcd put error")
 	}

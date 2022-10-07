@@ -1,6 +1,7 @@
 package util
 
 import (
+	"log"
 	"time"
 	"errors"
 	"context"
@@ -26,7 +27,7 @@ type Etcd struct {
 
 type WatchCallback func([]WatchResult)
 
-func NewEtcd(addrs []string, username, password string) (*Etcd, error) {
+func NewEtcd(addrs []string, username, password string) *Etcd {
 	var etcd_conf = clientv3.Config {
 		Endpoints:		addrs,
 		DialTimeout:	5 * time.Second,
@@ -39,9 +40,9 @@ func NewEtcd(addrs []string, username, password string) (*Etcd, error) {
 
 	etcd_client, err := clientv3.New(etcd_conf)
 	if err != nil {
-		return nil, err
+		log.Fatalf("clientv3.New error:%#v", err)
 	}
-	return &Etcd{client: etcd_client}, nil
+	return &Etcd{client: etcd_client}
 }
 
 func (p *Etcd) Close() error {

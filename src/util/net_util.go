@@ -46,3 +46,19 @@ func NetRecvTimeout(conn net.Conn, buf []byte, size int, timeout *time.Time) (in
 	}
 	return read_size, nil
 }
+
+func GetLocalIp() ([]string, error) {
+	var ips []string
+    addrs, err := net.InterfaceAddrs()
+    if err != nil {
+        return ips, err
+    }
+    for _, value := range addrs {
+        if ipnet, ok := value.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+            if ipnet.IP.To4() != nil {
+				ips = append(ips, ipnet.IP.String())
+            }
+        }
+    }
+	return ips, nil
+}

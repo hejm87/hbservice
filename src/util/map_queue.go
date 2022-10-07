@@ -73,21 +73,24 @@ func (p *MapQueue[K]) Push(key K, value any, replace bool) error {
 	return nil
 }
 
-func (p *MapQueue[K]) Get(key K) (any, bool) {
+func (p *MapQueue[K]) Get(key K, remove bool) (any, bool) {
 	if node, ok := p.dict[key]; ok {
 		result := (node.value).(struct {k K; v any})
+		if remove == true {
+			p.Delete(key)
+		}
 		return result.v, true
 	}
 	return nil, false
 }
 
-func (p *MapQueue[K]) Delete(key K) any {
+func (p *MapQueue[K]) Delete(key K) bool {
 	if node := p.remove_to_queue(key); node != nil {
 		p.size--
 		delete(p.dict, key)
-		return node
+		return true
 	}
-	return nil
+	return false
 }
 
 func (p *MapQueue[K]) Refresh(key K) bool {

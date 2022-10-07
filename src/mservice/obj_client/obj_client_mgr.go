@@ -1,74 +1,57 @@
 package obj_client
 
 import (
-	"fmt"
 	"sync"
+	"hbservice/src/net/net_core"
+	"hbservice/src/mservice/define"
 )
 
-const (
-	kCall		int = 1			// 同步
-	kCallAsync	int = 2			// 协程同步语义
-	kCast		int = 3			// 异步
-
-	kNotifyServiceChange	int = 1
-	kNotifyRecvPacket		int = 2
+var (
+	instance	*ObjClientMgr
+	once		sync.Once
 )
 
-type NotifyInfo struct {
-	ntype		int
-	value		interface {}
+func GetInstance() *ObjClientMgr {
+	once.Do(func() {
+		instance = new(ObjClientMgr)
+	})
+	return instance
 }
 
-type ObjectInfo struct {
-	client				*ObjectClient
-	last_active_ts		int		// 最近活跃时间
-	last_inactive_ts	int		// 最近非活跃时间
-	success_count		int		// 成功次数
-	fail_count			int		// 失败次数
-	series_fail_count	int		// 连续失败次数
-}
-
-type ObjectInfoSlice ObjectInfo[]
-
-func (p ObjectInfoSlice) Len() {
-	return len(p)
-}
-
-func (p ObjectInfoSlice) Less(i, j int) bool {
-	addr1 := fmt.Sprintf("%s:%d", p[i].client.Host, p[i].client.Port)
-	addr2 := fmt.Sprintf("%s:%d", p[j].client.Host, p[j].client.Port)
-	if addr1 < addr2 {
-		return true
-	}
-	return false
-}
-
-//////////////////////////////////////////////////////////
-//					ObjectClientMgr
-//////////////////////////////////////////////////////////
-
-// 名字服务在etcd的存储格式
-// 目录: /mservice/{服务名}/{host}:{port}_{seq}
-
-type ObjectClientMgr struct {
-	name				string	
-	active_clients		ObjectInfoSlice
-	inactive_clients	ObjectInfoSlice
-	queue				MapQueue[string]
-	channel_notify		chan *NotifyInfo
+type ObjClientMgr struct {
+	objs		map[string]*ObjectProxy
+	handle		net_core.PacketHandle
 	sync.Mutex
 }
 
-func NewObjectClientMgr(string name) *ObjectClientMgr {
-	mgr := &ObjectClientMgr {
-		name:	name,
-		queue:	new(MapQueue[string]),
-		channel_notify:	make(chan *NotifyInfo, 10),
+func (p *ObjClientMgr) Call(hash uint32, req *mservice_define.MServicePacket) (*mservice_define.MServicePacket, error) {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
 	}
-
-
+	return proxy.Call(hash, req)
 }
 
-func (p *ObjectClientMgr) init() error {
-	
+func (p *ObjClientMgr) AsyncCall(hash uint32, req *mservice_define.MServicePacket, cb RespPacketCb) error {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return err
+	}
+	proxy.AsyncCall(hash, req, cb)
+	return nil
+}
+
+func (p *ObjClientMgr) get_proxy(name string) (*ObjectProxy, error) {
+	var ok bool
+	var proxy *ObjectProxy = nil
+	p.Lock()
+	defer p.Unlock()
+	if proxy, ok = p.objs[name]; !ok {
+		proxy = NewObjectProxy(name, p.handle)
+		if err := proxy.Start(); err != nil {
+			return nil, err
+		}
+		p.objs[name] = proxy
+	}
+	return proxy, nil
 }
