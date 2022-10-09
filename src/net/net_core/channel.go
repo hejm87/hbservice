@@ -77,7 +77,6 @@ func (p *Channel) RecvLoop() error {
 			break
 		}
 	}
-	log.Printf("channel|id:%s finish RecvLoop\n", p.channelId)
 	return err
 }
 
@@ -114,6 +113,13 @@ func (p *ChannelMap) Get(id string) (*Channel, bool) {
 		return nil, false
 	}
 	return v.(*Channel), true
+}
+
+func (p *ChannelMap) LoadAndDelete(id string) (*Channel, bool) {
+	if v, ok := p.channels.LoadAndDelete(id); ok {
+		return v.(*Channel), true
+	}
+	return nil, false
 }
 
 func (p *ChannelMap) All() []Channel {

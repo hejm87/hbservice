@@ -55,7 +55,11 @@ func (p *MapQueue[K]) Pop() {
 }
 
 func (p *MapQueue[K]) Push(key K, value any, replace bool) error {
-	if p.size >= p.max_size {
+	add := 0
+	if replace == false {
+		add = 1
+	}
+	if p.size + add > p.max_size {
 		return errors.New("exceed max size")
 	}
 	if _, ok := p.dict[key]; ok {
@@ -73,15 +77,23 @@ func (p *MapQueue[K]) Push(key K, value any, replace bool) error {
 	return nil
 }
 
-func (p *MapQueue[K]) Get(key K, remove bool) (any, bool) {
-	if node, ok := p.dict[key]; ok {
-		result := (node.value).(struct {k K; v any})
-		if remove == true {
-			p.Delete(key)
-		}
-		return result.v, true
+func (p *MapQueue[K]) Get(key K) (any, bool) {
+	node, ok := p.dict[key]
+	if !ok {
+		return nil, false
 	}
-	return nil, false
+	result := (node.value).(struct {k K; v any})
+	return result.v, true
+}
+
+func (p *MapQueue[K]) GetAndDelete(key K) (any, bool) {
+	node, ok := p.dict[key]
+	if !ok {
+		return nil, false
+	}
+	p.Delete(key)
+	result := (node.value).(struct {k K; v any})
+	return result.v, true
 }
 
 func (p *MapQueue[K]) Delete(key K) bool {
@@ -138,4 +150,3 @@ func (p *MapQueue[K]) remove_to_queue(key K) *Node {
 	}
 	return nil
 }
-

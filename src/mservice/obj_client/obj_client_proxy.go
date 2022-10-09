@@ -226,7 +226,7 @@ func (p *ObjectProxy) loop_recv() {
 		var exists bool
 		var record *CallRecord = nil
 		p.Lock()
-		if res, exists := p.queue.Get(recv.packet.Header.TraceID, true); exists {
+		if res, exists := p.queue.GetAndDelete(recv.packet.Header.TraceID); exists {
 			record = res.(*CallRecord)
 		}
 		p.Unlock()

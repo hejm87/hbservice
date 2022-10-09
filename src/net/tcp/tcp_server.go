@@ -6,8 +6,14 @@ import (
 	"net"
 	"errors"
 	"context"
+	"hbservice/src/util"
 	"hbservice/src/net/net_core"
 )
+
+type CbTimerValue struct {
+	handle		net_core.LogicHandle
+	value		interface {}
+}
 
 type TcpServer struct {
 	params		[]net_core.NetServerParam
@@ -56,9 +62,48 @@ func (p *TcpServer) PushChannel(id string, packet net_core.Packet) error {
 	if channel, ok := p.channels.Get(id); ok {
 		channel.Push(packet)
 	} else {
-		return errors.New("not channel exists")
+		return errors.New("no channel exists")
 	}
 	return nil
+}
+
+func (p *TcpServer) CloseChannel(id string) error {
+	if channel, ok := p.channels.LoadAndDelete(id); ok {
+		channel.Close()
+	} else {
+		return errors.New("no channel exists")
+	}
+	return nil
+}
+
+func (p *TcpServer) SetTimer(param net_core.NetTimerParam, handle net_core.LogicHandle) error {
+	var err error
+	cb_value := &CbTimerValue {
+		handle:		handle,
+		value:		param.Value,
+	}
+	if param.Type == util.TIMER_DELAY {
+		err = util.GetTimerMgrInstance().SetTimerDelay(
+			param.Id,
+			cb_value,
+			param.Delay,
+			p.TimerCallback,
+		)
+	} else {
+		err = util.GetTimerMgrInstance().SetTimerPeriod(
+			param.Id,
+			cb_value,
+			param.Delay,
+			param.Period,
+			p.TimerCallback,
+		)
+	}
+	return err
+}
+
+func (p *TcpServer) TimerCallback(id string, value interface {}) {
+	cb_value := value.(*CbTimerValue)
+	cb_value.handle.OnTimer(id, cb_value.value, p)
 }
 
 ///////////////////////////////////////////////////

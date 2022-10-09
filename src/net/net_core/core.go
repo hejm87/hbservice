@@ -23,7 +23,7 @@ type PacketHandle interface {
 
 // 服务逻辑处理
 type LogicHandle interface {
-	Init() error
+	Init(NetServer) error
 	OnAccept(net.Conn, PacketHandle, NetServer) (string, error)
 	// param[1]: channel_id		string
 	// param[2]: packet			Packet
@@ -33,6 +33,10 @@ type LogicHandle interface {
 	// param[1]: channel_id		string
 	// param[2]: server			NetServer
 	OnClose(string, NetServer) error
+
+	// param[1]: timer_id		string
+	// param[2]: server			NetServer
+	OnTimer(string, interface {}, NetServer)
 }
 
 // 网络服务器抽象
@@ -40,6 +44,8 @@ type NetServer interface {
 	Start() error
 	Shutdown()
 	PushChannel(string, Packet) error
+	CloseChannel(string) error
+	SetTimer(NetTimerParam, LogicHandle) error
 }
 
 // 网络服务参数
@@ -49,4 +55,13 @@ type NetServerParam struct {
 	Name		string
 	Host		string
 	Port		int
+}
+
+// 定时器参数
+type NetTimerParam struct {
+	Id			string
+	Type		int
+	Delay		int
+	Period		int
+	Value		interface {}
 }

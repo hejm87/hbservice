@@ -9,11 +9,8 @@ import (
 	_ "net/http/pprof"
 	"github.com/segmentio/ksuid"
 	"github.com/mitchellh/mapstructure"
-	"hbservice/src/util"
-	"hbservice/src/net/tcp"
 	"hbservice/src/net/net_core"
 	"hbservice/src/mservice"
-	"hbservice/src/mservice/define"
 	"hbservice/example/echo_server/define"
 )
 
@@ -22,7 +19,7 @@ import (
 ////////////////////////////////////////////////////
 type EchoLogicHandle struct {}
 
-func (p *EchoLogicHandle) Init() error {
+func (p *EchoLogicHandle) Init(server net_core.NetServer) error {
 	return nil
 }
        	
@@ -52,6 +49,10 @@ func (p *EchoLogicHandle) OnMessage(channel_id string, packet net_core.Packet, s
 
 func (p *EchoLogicHandle) OnClose(channel_id string, server net_core.NetServer) error {
 	return nil
+}
+
+func (p *EchoLogicHandle) OnTimer(timer_id string, server net_core.NetServer) {
+	return
 }
 
 func (p *EchoLogicHandle) get_body(packet *define.EchoPacket) (interface {}, error) {
@@ -123,31 +124,17 @@ func (p *EchoLogicHandle) do_echo(body interface{}) (net_core.Packet, error) {
 //}
 
 func main() {
-	go func() {
-		fmt.Printf("ready to listen 8000\n")
-		http.ListenAndServe("0.0.0.0:8000", nil)
-	} ()
-
-	if err := util.SetConfigByFileLoader[mservice_define.MServiceConfig]("./mservice.cfg"); err != nil {
-		log.Fatalf("SetConfigByFileLoader[MServiceConfig] ./mservice.cfg error:%#v", err)
-	}
-
 	server_params := get_server_params()
-	server := tcp_server.NetServer(server_params)
-	if err := container.GetInstance().Start(server); err != nil {
+	if err := container.GetInstance().Start(server_params); err != nil {
 		log.Fatalf("container.Start error:%#v", err)
 	}
 }
 
 func get_server_params() []net_core.NetServerParam {
-	cfg := util.GetConfigValue[mservice_define.MServiceConfig]()
 	var server_params []net_core.NetServerParam
 	server_params = append(
 		server_params, 
 		net_core.NetServerParam {
-			Name:	cfg.Service.Name,
-			Host:	"",
-			Port:	cfg.Service.ListenPort,
 			LogicHandle:	&EchoLogicHandle {},
 			PacketHandle:	&define.EchoPacketHandle {},
 		},
