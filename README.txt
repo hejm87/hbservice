@@ -4,7 +4,9 @@
 3. client第二次启动，连接服务端会报错               --> 已解决
 4. 关于各模块的优雅关闭问题
 5. 将client端连接断开的报错改为正常断开日志
-6. etcd的client是否线程安全
+6. etcd的client是否线程安全，内部实现是否池化
+7. pusher_handle.go, get_uid_addr存在并发性能问题
+8. obj_client需要区分call, cast处理
 
 
 微服务网关功能要求：

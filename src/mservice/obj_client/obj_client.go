@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"time"
+	"hbservice/src/util"
 	"hbservice/src/net/net_core"
 	"hbservice/src/mservice/define"
 )
@@ -17,13 +18,18 @@ const (
 	kMaxSendQueueSize	int = 1000
 )
 
-type ObjectClientStatus struct {
-	LatestActiveTs		int64
-	LatestInactiveTs	int64
-	SuccessCount		int
-	FailCount			int
-	SeriesFailCount		int
-}
+//type ObjectClientStatus struct {
+//	LatestActiveTs		int64
+//	LatestInactiveTs	int64
+//	SuccessCount		int
+//	FailCount			int
+//	SeriesFailCount		int
+//}
+//
+//type ObjectClientData struct {
+//	Status				ObjectClientStatus
+//	ObjProxy			*ObjectProxy
+//}
 
 type ObjectClient struct {
 	Name		string

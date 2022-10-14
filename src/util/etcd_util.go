@@ -110,11 +110,13 @@ func (p *Etcd) Watch(ctx context.Context, key string, with_prefix bool, cb Watch
 	for x := range wch {
 		var resp []WatchResult
 		if x.Err() != nil {
+			log.Printf("ERROR|watch key:%s error:%#v", key, x.Err())
 			return x.Err()
 		}
 		// etcd client close
 		if len(x.Events) == 0 && x.Err() == nil {
-			return errors.New("etcd client close")
+			log.Printf("ERROR|watch key:%s etcd client close", key)
+			return nil
 		}
 		for _, ev := range x.Events {
 			var result WatchResult

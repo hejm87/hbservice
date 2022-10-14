@@ -1,15 +1,16 @@
 package util
 
 import (
-	"errors"
+	"fmt"
+	"reflect"
 )
 
 type any = interface {}
 
 type Node struct {
-	prev	*Node
-	next	*Node
-	value	any
+	prev		*Node
+	next		*Node
+	value		any
 }
 
 type MapQueue[K comparable] struct {
@@ -36,15 +37,25 @@ func (p *MapQueue[K]) Exists(key K) bool {
 	return true
 }
 
-func (p *MapQueue[K]) Top() any {
-	if p.head == nil {
-		return nil
+func (p *MapQueue[K]) Front() (K, any) {
+	if p.size == 0 {
+		var temp K
+		panic(fmt.Sprintf("MapQueue[%#v] is empty", reflect.TypeOf(temp).String()))
 	}
-	result := (p.head.value).(struct{k K; v any})
-	return result.v
+	result := (p.head.value).(struct {k K; v any})
+	return result.k, result.v
 }
 
-func (p *MapQueue[K]) Pop() {
+func (p *MapQueue[K]) Back() (K, any) {
+	if p.size == 0 {
+		var temp K
+		panic(fmt.Sprintf("MapQueue[%#v] is empty", reflect.TypeOf(temp).String()))
+	}
+	result := (p.tail.value).(struct {k K; v any})
+	return result.k, result.v
+}
+
+func (p *MapQueue[K]) PopFront() {
 	if p.head == nil {
 		return
 	}
@@ -54,33 +65,40 @@ func (p *MapQueue[K]) Pop() {
 	p.size--
 }
 
-func (p *MapQueue[K]) Push(key K, value any, replace bool) error {
-	add := 0
-	if replace == false {
-		add = 1
-	}
-	if p.size + add > p.max_size {
-		return errors.New("exceed max size")
-	}
+func (p *MapQueue[K]) Set(key K, value any, auto_eliminate bool) bool {
 	if _, ok := p.dict[key]; ok {
-		if replace == true {
-			p.Delete(key)
-		} else {
-			return errors.New("key already exists")
+		p.Delete(key)
+	}
+	if p.size >= p.max_size {
+		if auto_eliminate == false {
+			return false
 		}
+		p.PopFront()
 	}
 	node := &Node {value: struct {k K; v any} {key, value}}
-	node.next = p.head
-	p.head = node
+	node.prev = p.tail
+	if p.size == 0 {
+		p.head = node
+	} else {
+		p.tail.next = node
+	}
+	p.tail = node
 	p.dict[key] = node
 	p.size++
-	return nil
+	return true
 }
 
-func (p *MapQueue[K]) Get(key K) (any, bool) {
+func (p *MapQueue[K]) Get(key K, move_to_tail bool) (any, bool) {
 	node, ok := p.dict[key]
 	if !ok {
 		return nil, false
+	}
+	if p.size > 0 && move_to_tail {
+		p.detach_to_queue(node)
+		p.tail.next = node
+		node.prev = p.tail
+		node.next = nil
+		p.tail = node
 	}
 	result := (node.value).(struct {k K; v any})
 	return result.v, true
@@ -97,22 +115,26 @@ func (p *MapQueue[K]) GetAndDelete(key K) (any, bool) {
 }
 
 func (p *MapQueue[K]) Delete(key K) bool {
-	if node := p.remove_to_queue(key); node != nil {
-		p.size--
-		delete(p.dict, key)
-		return true
+	node, ok := p.dict[key]
+	if !ok {
+		return false
 	}
-	return false
-}
-
-func (p *MapQueue[K]) Refresh(key K) bool {
-	if node := p.remove_to_queue(key); node != nil {
-		node.next = p.head
-		p.head = node
-		p.dict[key] = node
-		return true
+	if node.prev == nil {
+		p.head = node.next
+		p.head.prev = nil
+	} else if node.next == nil {
+		prev := node.prev
+		prev.next = nil
+		p.tail = prev
+	} else {
+		prev := node.prev
+		next := node.next
+		prev.next = next
+		next.prev = prev
 	}
-	return false
+	delete(p.dict, key)
+	p.size--
+	return true
 }
 
 func (p *MapQueue[K]) Keys() []K {
@@ -131,22 +153,55 @@ func (p *MapQueue[K]) Values() []interface{} {
 	return arr
 }
 
-func (p *MapQueue[K]) remove_to_queue(key K) *Node {
-	if node, ok := p.dict[key]; ok {
-		if node.prev == nil {
-			p.head = node.next
-			p.head.prev = nil
-		} else if node.next == nil {
-			prev := node.prev
-			prev.next = nil
-			p.tail = prev
-		} else {
-			prev := node.prev
-			next := node.next
-			prev.next = next
-			next.prev = prev
-		}
-		return node
+// 回调函数返回值说明：
+// [1] 查询是否停止
+// [2] 查询是否命中
+func (p *MapQueue[K]) Search(f func(K, interface{}) (bool, bool)) map[K]interface{} {
+	return p.search_and_remove(f, false)
+}
+
+func (p *MapQueue[K]) Remove(f func(K, interface{}) (bool, bool)) map[K]interface{} {
+	return p.search_and_remove(f, true)
+}
+
+func (p *MapQueue[K]) search_and_remove(f func(K, interface{}) (bool, bool), remove bool) map[K]interface{} {
+	result := make(map[K]interface{})
+	if p.size == 0 {
+		return result
 	}
-	return nil
+	node := p.head
+	for {
+		if node == nil {
+			break
+		}
+		cvalue := (node.value).(struct {k K; v any})
+		stop, ok := f(cvalue.k, cvalue.v)
+		if ok {
+			result[cvalue.k] = cvalue.v
+		}
+		if stop {
+			break
+		}
+		if ok && remove {
+			p.Delete(cvalue.k)
+		}
+		node = node.next
+	}
+	return result
+}
+
+func (p *MapQueue[K]) detach_to_queue(node *Node) {
+	if node.prev == nil {
+		p.head = node.next
+		p.head.prev = nil
+	} else if node.next == nil {
+		prev := node.prev
+		prev.next = nil
+		p.tail = prev
+	} else {
+		prev := node.prev
+		next := node.next
+		prev.next = next
+		next.prev = prev
+	}
 }

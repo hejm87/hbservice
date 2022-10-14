@@ -14,3 +14,8 @@ func GenHash(str string) uint32 {
 	h.Write([]byte(str))
 	return h.Sum32()
 }
+
+func SliceInsertHead[T any](e T, s []T) []T {
+	res := append([]T{e}, s...)
+	return res
+}

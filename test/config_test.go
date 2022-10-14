@@ -1,4 +1,5 @@
-package config_test
+//package config_test
+package hbservice_test
 
 import (
 	"os"
@@ -23,10 +24,7 @@ type FileConfigData struct {
 }
 
 func TestEtcdConfig(t *testing.T) {
-	etcd, err := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
-	if err != nil {
-		t.Fatalf("etcd new error:%#v", err)
-	}
+	etcd := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
 
 	key := "etcd_config"
 	data := EtcdConfigData {

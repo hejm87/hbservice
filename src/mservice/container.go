@@ -10,10 +10,10 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"hbservice/src/util"
+	"hbservice/src/net/tcp"
+	"hbservice/src/net/net_core"
 	"hbservice/src/mservice/define"
 	"hbservice/src/mservice/obj_client"
-	"hbservice/src/net/net_core"
-	"hbservice/src/net/tcp"
 )
 
 const (
@@ -27,22 +27,26 @@ var (
 )
 
 type Container struct {
-	etcd			*util.Etcd
 	lease_id		int64
-	cfg				*mservice_define.MServiceConfig
+
+	obj_proxys		map[string]*ObjectProxy		
+
 	ctx				context.Context
 	cancel			context.CancelFunc
+	sync.Mutex
 	net_core.NetServer
 }
 
 func GetInstance() *Container {
 	once.Do(func() {
-		instance = &Container {}
+		instance = &Container {
+			obj_mgr: obj_client.NewObjClientMgr(&MPacketHandle{})
+		}
 	})
 	return instance
 }
 
-func (p *Container) Start(params []net_core.NetServerParam) error {
+func (p *Container) Run(params []net_core.NetServerParam) error {
 	if err := p.init(); err != nil {
 		return err
 	}
@@ -50,18 +54,66 @@ func (p *Container) Start(params []net_core.NetServerParam) error {
 	if err != nil {
 		return err
 	}
+
 	p.NetServer = tcp_server.NetServer(new_params)
 	go p.NetServer.Start()
 
 	p.do_keep_alive_util_shutdown()
 
-	p.etcd.Close()
 	return nil
 }
 
 func (p *Container) Shutdown() {
 	p.NetServer.Shutdown()
 	p.cancel()
+}
+
+func (p *Container) Call(hash uint32, req *mserivce_define.MServicePacket) (*mservice_define.MServicePacket, error) {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.Call(hash, req)
+}
+
+func (p *Container) CallByAddr(addr string, req *mserivce_define.MServicePacket) (*mservice_define.MServicePacket, error) {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.Call(addr, req)
+}
+
+func (p *Container) CallAsync(hash uint32, req *mserivce_define.MServicePacket) error {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.CallAsync(hash, req)
+}
+
+func (p *Container) CallAsyncByAddr(addr string, req *mserivce_define.MServicePacket) error {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.CallAsyncByAddr(hash, req)
+}
+
+func (p *Container) Cast(hash uint32, req *mserivce_define.MServicePacket) error {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.Cast(hash, req)
+}
+
+func (p *Container) CastByAddr(addr string, req *mserivce_define.MServicePacket) error {
+	proxy, err := p.get_proxy(req.Header.Service)
+	if err != nil {
+		return nil, err
+	}
+	return proxy.CastByAddr(addr, req)
 }
 
 func (p *Container) init() error {
@@ -76,14 +128,28 @@ func (p *Container) init() error {
 		} ()
 	}
 
-	p.etcd = util.NewEtcd(p.cfg.EtcdCfg.Addrs, p.cfg.EtcdCfg.Username, p.cfg.EtcdCfg.Password)
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 
-	p.lease_id, err = p.etcd.PutWithTimeout(p.get_service_tag(), "ok", int64(NAMING_OVERDUE))
+	p.lease_id, err = mservice_util.GetEtcdInstance().PutWithTimeout(p.get_service_tag(), "ok", int64(NAMING_OVERDUE))
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (p *Container) get_obj_proxy(name string) (*ObjectProxy, error) {
+	p.Lock()
+	defer p.Unlock()
+	proxy, ok := p.obj_proxys[name]
+	if ok {
+		return proxy, nil
+	}
+	proxy = NewObjectProxy(name, &MPacketHandle {})
+	if err := proxy.Start(); err != nil {
+		return nil, err
+	}
+	p.obj_proxys[name] = proxy
+	return proxy, nil
 }
 
 func (p *Container) do_keep_alive_util_shutdown() {
@@ -92,7 +158,7 @@ func (p *Container) do_keep_alive_util_shutdown() {
 		case <-p.ctx.Done():
 			break
 		case <-time.After(time.Duration(NAMING_HEARTBEAT_TS) * time.Second):
-			if err := p.etcd.KeepAlive(p.lease_id); err != nil {
+			if err := mservice_util.GetEtcdInstance().KeepAlive(p.lease_id); err != nil {
 				log.Printf("ERROR|container|KeepAlive error:%#v", err)
 			}
 		}

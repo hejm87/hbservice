@@ -1,4 +1,5 @@
-package timer_test
+//package timer_test
+package hbservice_test
 
 import (
 	"time"

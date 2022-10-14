@@ -1,4 +1,5 @@
-package etcd_test
+//package etcd_test
+package hbservice_test
 
 import (
 	"fmt"
@@ -12,7 +13,7 @@ import (
 func TestFlow(t *testing.T) {
 	etcd := util.NewEtcd([]string{"127.0.0.1:2379"}, "", "")
 	// 测试正常流程
-	if err = etcd.Put("key1", "value1"); err != nil {
+	if err := etcd.Put("key1", "value1"); err != nil {
 		t.Error("etcd put error")
 	}
 	if value, err := etcd.Get("key1"); err == nil {
