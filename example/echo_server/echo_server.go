@@ -1,11 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"errors"
-	"net/http"
 	_ "net/http/pprof"
 	"github.com/segmentio/ksuid"
 	"github.com/mitchellh/mapstructure"
@@ -51,7 +49,7 @@ func (p *EchoLogicHandle) OnClose(channel_id string, server net_core.NetServer) 
 	return nil
 }
 
-func (p *EchoLogicHandle) OnTimer(timer_id string, server net_core.NetServer) {
+func (p *EchoLogicHandle) OnTimer(timer_id string, cb_value interface {}, server net_core.NetServer) {
 	return
 }
 
@@ -125,8 +123,9 @@ func (p *EchoLogicHandle) do_echo(body interface{}) (net_core.Packet, error) {
 
 func main() {
 	server_params := get_server_params()
-	if err := container.GetInstance().Start(server_params); err != nil {
-		log.Fatalf("container.Start error:%#v", err)
+	log.Printf("ready container.Run ...")
+	if err := container.Run(server_params); err != nil {
+		log.Fatalf("container.Run error:%#v", err)
 	}
 }
 
