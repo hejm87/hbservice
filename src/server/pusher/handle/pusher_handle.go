@@ -1,10 +1,16 @@
 package pusher_handle
 
 import (
+	"fmt"
+	"log"
+	"net"
+	"time"
 	"sync"
+	"errors"
 	"github.com/segmentio/ksuid"
 	"hbservice/src/util"
 	"hbservice/src/mservice"
+	"hbservice/src/mservice/define"
 	"hbservice/src/mservice/naming"
 	"hbservice/src/net/net_core"
 	"hbservice/src/server/gateway/define"
@@ -22,13 +28,13 @@ type gw_client struct {
 	host					string
 	port					int
 	latest_disconnect_ts	int64
-	client					*TcpClient
+	client					*util.TcpClient
 }
 
 type PusherHandle struct {
-	cfg						pusher_define.PusherConfig						
-	user_caches				util.LruCache[string, *user_info]
-	get_addr_search			util.MergeSearch[string, *UserInfo]
+	cfg						*pusher_define.PusherConfig	
+	user_caches				*util.LruCache[string, *user_info]
+	get_addr_search			*util.MergeSearch[string, string]
 
 	clients					map[string]*gw_client
 
@@ -39,20 +45,18 @@ type PusherHandle struct {
 }
 
 func (p *PusherHandle) Init(server net_core.NetServer) error {
-	err := util.SetConfigByFileLoader[pusher_define.PusherConfig](
-		mservice_util.GetEtcdInstance(),
-		mservice_define.SERVICE_ETCD_CONFIG_PATH + "/pusher.config"
-	)
+	conf_path := mservice_define.SERVICE_ETCD_CONFIG_PATH + "/pusher.config"
+	err := util.SetConfigByFileLoader[pusher_define.PusherConfig](conf_path)
 	if err != nil {
 		return err
 	}
-	p.cfg := util.GetConfigValue[pusher_define.PusherConfig]()
+	p.cfg = util.GetConfigValue[pusher_define.PusherConfig]()
 
-	p.user_caches = util.NewLruCache[string, *UserInfo]
+	p.user_caches = util.NewLruCache[string, *user_info](p.cfg.UserCacheSize, nil)
 	p.get_addr_search = util.NewMergeSearch[string, string](p.get_remote_user_addr)
 
-	p.channel_push_small = make(chan *service_define.MServicePacket, cfg.PushChannelCount)
-	p.channel_push_large = make(chan *service_define.MServicePacket, cfg.PushChannelCount)
+	p.channel_push_small = make(chan *mservice_define.MServicePacket, p.cfg.PushChannelCount)
+	p.channel_push_large = make(chan *mservice_define.MServicePacket, p.cfg.PushChannelCount)
 
 	if err := p.init_gateway_clients(); err != nil {
 		return err
@@ -60,7 +64,7 @@ func (p *PusherHandle) Init(server net_core.NetServer) error {
 	naming.GetInstance().Subscribe("gateway", p.service_change)
 
 	go func() {
-		timer := time.NewTricker(time.Duration(cfg.RetryClientConnectTs) * time.Second)
+		timer := time.NewTicker(time.Duration(p.cfg.RetryClientConnectTs) * time.Second)
 		for {
 			select {
 			case <-timer.C:
@@ -77,12 +81,13 @@ func (p *PusherHandle) OnAccept(conn net.Conn, handle net_core.PacketHandle, ser
 }
 
 func (p *PusherHandle) OnMessage(channel_id string, packet net_core.Packet, server net_core.NetServer) error {
-	req := (packet.Body).(gateway_define.MIPushReq)
+	mpacket := packet.(*mservice_define.MServicePacket)
+	req := (mpacket.Body).(*gateway_define.MIPushReq)
 	size := len(req.Uids)
-	if size >= cfg.BroadcastUidCount {
-		p.channel_push_large <-packet
+	if size >= p.cfg.BroadcastUidCount {
+		p.channel_push_large <-mpacket
 	} else {
-		p.channel_push_small <-packet
+		p.channel_push_small <-mpacket
 	}
 	return nil
 }
@@ -96,7 +101,7 @@ func (p *PusherHandle) OnTimer(timer_id string, value interface {}, server net_c
 }
 
 func (p *PusherHandle) init_gateway_clients() error {
-	infos, err := naming.Find("gateway")
+	infos, err := naming.GetInstance().Find("gateway")
 	if err != nil {
 		return err
 	}
@@ -104,9 +109,10 @@ func (p *PusherHandle) init_gateway_clients() error {
 		client := util.NewTcpClient(
 			info.Host, 
 			info.Port, 
-			mservice_define.MPacketHandle{}, 
+			&mservice_define.MPacketHandle{}, 
 			nil, 
-			nil
+			nil,
+			nil,
 		)
 		if err := client.Connect(500); err != nil {
 			log.Printf("ERROR|connect gateway[%s:%d] error:%#v", info.Host, info.Port, err)
@@ -117,7 +123,8 @@ func (p *PusherHandle) init_gateway_clients() error {
 			port:			info.Port,
 			client:			client,
 		}
-		p.clients = append(p.clients, gclient)
+		addr := fmt.Sprintf("%s:%d", info.Host, info.Port)
+		p.clients[addr] = gclient
 	}
 	return nil
 }
@@ -126,7 +133,7 @@ func (p *PusherHandle) retry_client_connect() {
 	var retry_clients []*gw_client
 	p.Lock()
 	for _, gclient := range p.clients {
-		if gclient.client.GetState() == util.stClose {
+		if gclient.client.GetState() == util.StateClose {
 			retry_clients = append(retry_clients, gclient)
 		}
 	}
@@ -138,28 +145,28 @@ func (p *PusherHandle) retry_client_connect() {
 }
 
 func (p *PusherHandle) service_change(changes []naming.ServiceChange) {
-	var new_clients []*TcpClient
+	var new_clients []*gw_client
 	p.Lock()
 	for _, change := range changes {
-		addr := fmt.Sprintf("%s:%d", change.Host, change.Port)
-		if change.Op == naming.kServicePut {
-			if client, ok := p.clients[addr]; ok {
-				if change.ServiceId != client.gateway_id {
-					client.Close()
-					gclient := &gw_client {
-						gateway_id:		info.ServiceId,
-						host:			info.Host,
-						port:			info.Port,
+		addr := fmt.Sprintf("%s:%d", change.Service.Host, change.Service.Port)
+		if change.Op == naming.ServicePut {
+			if gclient, ok := p.clients[addr]; ok {
+				if change.Service.ServiceId != gclient.gateway_id {
+					gclient.client.Close()
+					new_gclient := &gw_client {
+						gateway_id:		change.Service.ServiceId,
+						host:			change.Service.Host,
+						port:			change.Service.Port,
 					}
-					new_clients = append(new_clients, gclient)
+					new_clients = append(new_clients, new_gclient)
 				}
 			} else {
 
 			}
 		} else {
-			if client, ok := p.clients[addr]; ok {
-				if change.ServiceId == client.gateway_id {
-					client.Close()
+			if gclient, ok := p.clients[addr]; ok {
+				if change.Service.ServiceId == gclient.gateway_id {
+					gclient.client.Close()
 					delete(p.clients, addr)
 				}
 			}
@@ -171,31 +178,35 @@ func (p *PusherHandle) service_change(changes []naming.ServiceChange) {
 		client := util.NewTcpClient(
 			gclient.host,
 			gclient.port,
-			mservice_define.MPacketHandle{}, 
+			&mservice_define.MPacketHandle{}, 
 			nil, 
-			nil
+			nil,
+			nil,
 		)
 		client.Connect(500)
 		gclient.client = client
 	}
 
 	p.Lock()
-	p.clients = append(p.clients, new_clients...)
+	for _, gclient := range new_clients {
+		addr := fmt.Sprintf("%s:%d", gclient.host, gclient.port)
+		p.clients[addr] = gclient
+	}
 	p.Unlock()
 }
 
 func (p *PusherHandle) do_pusher_small() {
 	for packet := range p.channel_push_small {
-		req := (packet.Body).(*MIPushReq)
+		req := (packet.Body).(*gateway_define.MIPushReq)
 		uids := req.Uids
-		for _, uid := range Uids {
+		for _, uid := range uids {
 			addr, err := p.get_uid_addr(uid)
 			if err != nil {
 				continue
 			}
 			req.Uids = []string{uid}
-			if client, ok := p.gw_clients[addr]; ok {
-				client.Send(packet)
+			if gclient, ok := p.clients[addr]; ok {
+				gclient.client.Send(packet)
 			}
 		}
 	}
@@ -203,28 +214,18 @@ func (p *PusherHandle) do_pusher_small() {
 
 func (p *PusherHandle) do_pusher_large() {
 	for req := range p.channel_push_large {
-		for _, c := range p.get_active_clients() {
-			c.Send(packet)
+		for _, gclient := range p.get_active_clients() {
+			gclient.client.Send(req)
 		}
 	}
 }
 
-func (p *PusherHandle) get_client(addr string) (*TcpClient, bool) {
+func (p *PusherHandle) get_active_clients() (clients []*gw_client) {
 	p.Lock()
 	defer p.Unlock()
-	client, ok := p.gw_clients[addr]
-	if ok && client.GetState() {
-		return client, true
-	}
-	return nil, false
-}
-
-func (p *PusherHandle) get_active_clients() (clients []*TcpClient) {
-	p.Lock()
-	defer p.Unlock()
-	for _, c := range p.gw_clients {
-		if c.GetState() == util.stConnected {
-			clients = append(clients, c)
+	for _, gclient := range p.clients {
+		if gclient.client.GetState() == util.StateConnected {
+			clients = append(clients, gclient)
 		}
 	}
 	return clients
@@ -232,42 +233,41 @@ func (p *PusherHandle) get_active_clients() (clients []*TcpClient) {
 
 func (p *PusherHandle) get_uid_addr(uid string) (string, error) {
 	p.Lock()
-	if user, ok := user_caches.Get(uid); ok {
+	if user, ok := p.user_caches.Get(uid); ok {
 		if user.expire_ts > time.Now().Unix() {
 			return user.addr, nil
 		}
 	}
 	p.Unlock()
-
 	addr, err := p.get_addr_search.Call(uid)
 	if err != nil {
 		return "", err
 	}
 	p.Lock()
-	user := &UserInfo {
+	user := &user_info {
 		addr:		addr,
-		expire_ts:	time.Now().Unix() + p.cfg.UserCacheTs,
+		expire_ts:	time.Now().Unix() + int64(p.cfg.UserCacheTs),
 	}
+	p.user_caches.Set(uid, user)
 	p.Unlock()
-	return 
+	return addr, nil
 }
 
 func (p *PusherHandle) get_remote_user_addr(uid string) (string, error) {
-	req := &mservice_define.MServicePacket {
-		Header:	mservice_define.MServiceHeader {
-			Service:	online_define.SERVICE_NAME,
-			Mechod:		online_define.OL_GET_UID_ADDR,
-			Direction:	mservice_define.DIRECT_REQUEST,
-		},
-		Body:	&online_define.OLGetUidAddrReq {Uid: uid},
-	}	
-	resp, err := Container.GetInstance().Call(util.GenHash(uid), req)
+	req := mservice_define.CreateReqPacket(
+		online_define.SERVICE_NAME,
+		online_define.MS_ONLINE_GET_USER_NODE,
+		mservice_define.MS_CALL,
+		&online_define.OLGetUserNodeReq {Uid: uid},
+	)
+	resp, err := container.CallByPacket(util.GenHash(uid), req)
 	if err != nil {
 		return "", err
 	}
-	body := mservice_define.GetPacketBody[online_define.OLGetUidAddrResp](resp)
-	if body.Err != nil {
-		return "", body.Err
+	body := resp.Body.(*online_define.OLGetUserNodeResp)
+	if body.Err != "" {
+		return "", errors.New(body.Err)
 	}
-	return body.Addr, nil
+	addr := fmt.Sprintf("%s:%d", body.User.Host, body.User.Port)
+	return addr, nil
 }
