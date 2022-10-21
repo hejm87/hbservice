@@ -5,6 +5,7 @@ import (
 	"time"
 	"errors"
 	"hbservice/src/util"
+	"hbservice/src/server/gateway/define"
 )
 
 var (
@@ -14,7 +15,7 @@ var (
 
 func GetUserConnsInstance() *GWUserConnMgr {
 	once.Do(func() {
-		cfg := util.GetConfigValue[gateway_define.GatewayConfig].Common
+		cfg := util.GetConfigValue[gateway_define.GatewayConfig]().Common
 		instance = &GWUserConnMgr {
 			zset_uid:			util.MakeSortedSet(),
 			user_conns:			make(map[string]*UserConnInfo),
@@ -55,12 +56,12 @@ func (p *GWUserConnMgr) AddUserConn(uid string, channel_id string) error {
 	if _, ok := p.user_conns[uid]; ok {
 		return errors.New(eUidAlreadyExists)
 	}
-	if p.zset_uid.Len() >= p.max_conn_size {
+	if p.zset_uid.Len() >= int64(p.max_conn_size) {
 		return errors.New(eExceedMaxConnLimit)
 	}
 
 	now := time.Now().Unix()
-	if ok := zset_uid.Add(uid, now); !ok {
+	if ok := p.zset_uid.Add(uid, float64(now)); !ok {
 		return errors.New(eAddUserConnFail)
 	}
 
@@ -68,9 +69,10 @@ func (p *GWUserConnMgr) AddUserConn(uid string, channel_id string) error {
 		Uid:			uid,
 		ChannelId:		channel_id,
 		ConnectTs:		now,
-		ExpireTs:		now + p.conn_timeout_sec,
+		ExpireTs:		now + int64(p.conn_timeout_sec),
 	}
-	user_conns[uid] = user_conn
+	p.user_conns[uid] = user_conn
+	return nil
 }
 
 func (p *GWUserConnMgr) RemoveUserConn(uid string) bool {
@@ -90,8 +92,8 @@ func (p *GWUserConnMgr) RefreshUserConn(uid string) bool {
 	if !ok {
 		return false
 	}
-	expire_ts := time.Now().Unix() + p.conn_timeout_sec
-	if ok := zset_uid.Add(uid, expire_ts); !ok {
+	expire_ts := time.Now().Unix() + int64(p.conn_timeout_sec)
+	if ok := p.zset_uid.Add(uid, float64(expire_ts)); !ok {
 		return false
 	}
 	uc.ExpireTs = expire_ts
@@ -112,8 +114,8 @@ func (p *GWUserConnMgr) GetTimeoutUserConns() []string {
 	defer p.Unlock()
 	var users []string
 	min := &util.ScoreBorder {Value: 0}
-	max := &util.ScoreBorder {Value: time.Now().Unix()}
-	elems := zset_uid.RangeByScore(min, max, 0, -1, false)
+	max := &util.ScoreBorder {Value: float64(time.Now().Unix())}
+	elems := p.zset_uid.RangeByScore(min, max, 0, -1, false)
 	for _, x := range elems {
 		users = append(users, x.Member)
 	}

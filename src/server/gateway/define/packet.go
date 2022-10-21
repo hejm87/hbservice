@@ -129,18 +129,18 @@ type MIPushReq struct {
 //////////////////////////////////////////////////////
 //					内部推送PacketHandle
 //////////////////////////////////////////////////////
-type MIPushPacketHandle struct {}
-
-func (p *MIPushPacketHandle) RecvPacket(conn net.Conn, timeout_ms int) (net_core.Packet, error) {
-	var packet MInnerPushPacket
-	if bytes, err := mservice_define.CommonRecvPacket(conn, timeout_ms); err == nil {
-		if err := json.Unmarshal(bytes, &packet); err != nil {
-			return nil, err
-		}
-	}
-	return &packet, nil
-}
-
-func (p *MIPushPacketHandle) SendPacket(conn net.Conn, packet net_core.Packet) error {
-	return mservice_define.CommonSendPacket(conn, packet)
-}
+//type MIPushPacketHandle struct {}
+//
+//func (p *MIPushPacketHandle) RecvPacket(conn net.Conn, timeout_ms int) (net_core.Packet, error) {
+//	var packet MInnerPushPacket
+//	if bytes, err := mservice_define.CommonRecvPacket(conn, timeout_ms); err == nil {
+//		if err := json.Unmarshal(bytes, &packet); err != nil {
+//			return nil, err
+//		}
+//	}
+//	return &packet, nil
+//}
+//
+//func (p *MIPushPacketHandle) SendPacket(conn net.Conn, packet net_core.Packet) error {
+//	return mservice_define.CommonSendPacket(conn, packet)
+//}

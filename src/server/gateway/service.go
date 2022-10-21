@@ -11,7 +11,7 @@ import (
 
 func main() {
 	params := get_server_params()
-	if err := container.GetInstance().Run(params); err != nil {
+	if err := container.Run(params); err != nil {
 		log.Fatalf("container.Start error:%#v", err)
 	}
 }
@@ -29,7 +29,7 @@ func get_server_params() []net_core.NetServerParam {
 		params,
 		net_core.NetServerParam {
 			LogicHandle:	&gateway_handle.ServiceHandle {},
-			PacketHandle:	&mservice_define.MIPushPacketHandle {},
+			PacketHandle:	&mservice_define.MPacketHandle {},
 		},
 	)
 	return params
