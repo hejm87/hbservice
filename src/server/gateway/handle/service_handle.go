@@ -19,16 +19,23 @@ func (p *ServiceHandle) OnAccept(conn net.Conn, handle net_core.PacketHandle, se
 
 func (p *ServiceHandle) OnMessage(channel_id string, packet net_core.Packet, server net_core.NetServer) error {
 	mpacket := packet.(*mservice_define.MServicePacket)
-	if mpacket.Header.Service != "Pusher" {
+	if mpacket.Header.Service != gateway_define.SERVICE_NAME {
 		return nil
 	}
-	if mpacket.Header.Uid == "" {
-		return nil
+	push_req := mpakcet.Body.(MIPushReq)
+	push_item := gateway_define.MPushItem {
+		Cmd:	push_req.Cmd,
+		Body:	push_req.Body,
 	}
-	if gw_channel_id, ok := GetGWUsersInstance().GetUserChannelId(mpacket.Header.Uid); ok {
-		server.PushChannel(gw_channel_id, packet)
-	}
-	return nil
+	resp_packet := gateway_define.CreateRespPacket(
+		req.Header.Uid,
+		req.Header.Cmd,
+		gateway_define.MPushPacket {
+			Count:		1,
+			PushItems:	[]gateway_define.MPushPacket {push_item},
+		},
+	)
+	return resp_packet, nil
 }
 
 func (p *ServiceHandle) OnClose(channel_id string, server net_core.NetServer) error {

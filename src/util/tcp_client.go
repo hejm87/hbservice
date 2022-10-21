@@ -2,17 +2,17 @@ package util
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"time"
 	"sync"
 	"errors"
+	"context"
 	"hbservice/src/net/net_core"
 )
 
 const (
 	stClose			int = 0
-	stConneted		int = 1
+	stConnected		int = 1
 
 	kMaxSendChannelSize		int = 1000
 )
@@ -48,18 +48,18 @@ func NewTcpClient(host string, port int, handle net_core.PacketHandle, cb_recv R
 	return &TcpClient {
 		Host:			host,
 		Port:			port,
+		Param:			param,
 		state:			stClose,
 		packet_handle:	handle,
 		cb_recv:		cb_recv,
 		cb_close:		cb_close,
-		param:			param,
 	}
 }
 
 func (p *TcpClient) Connect(timeout_ms int) error {
 	p.Lock()
 	defer p.Unlock()
-	if p.state == stConnect {
+	if p.state == stConnected {
 		return nil
 	}
 
@@ -70,7 +70,7 @@ func (p *TcpClient) Connect(timeout_ms int) error {
 		return err
 	}
 	p.ctx, p.cancel = context.WithCancel(context.TODO())
-	p.channel_send := make(chan net_core.Packet, kMaxSendChannelSize)
+	p.channel_send = make(chan net_core.Packet, kMaxSendChannelSize)
 
 	p.state = stConnected
 	p.Conn = conn
@@ -83,19 +83,20 @@ func (p *TcpClient) Send(packet net_core.Packet) (err error) {
 		err = errors.New("channel close")
 	} ()
 	p.channel_send <-packet
+	return err
 }
 
 func (p *TcpClient) Close() {
-	close(true)
+	p.close(true, nil)
 }
 
-func (p *TcpClient) GetState() {
+func (p *TcpClient) GetState() int {
 	p.Lock()
 	defer p.Unlock()
 	return p.state
 }
 
-func (p *TcpClient) close(is_active_close bool) {
+func (p *TcpClient) close(is_active_close bool, err error) {
 	defer func() {
 		recover()
 	} ()
@@ -112,45 +113,49 @@ func (p *TcpClient) close(is_active_close bool) {
 	p.Conn.Close()
 	close(p.channel_send)
 	if p.cb_close != nil {
-		p.cb_close(is_active_close)
+		p.cb_close(p, is_active_close, err)
 	}
 }
 
 func (p *TcpClient) do_send_loop() {
+	var err error
 	for {
 		select {
 		case <-p.ctx.Done():
+			err = errors.New("do_send_loop normal exit")
 			break
 		case packet, ok := <-p.channel_send:
 			if !ok {
+				err = errors.New("do_send_loop channel_send close")
 				break
 			}
-			if err := p.handle.SendPacket(p.Conn, packet); err != nil {
-				log.Printf("TcpClient|host:%s, port:%d, SendPacket error:%#v", p.host, p.port, err)
+			if err := p.packet_handle.SendPacket(p.Conn, packet); err != nil {
+				err = errors.New(fmt.Sprintf("do_send_loop SendPacket error:%#v", err))
 				break
 			}
 		}
 	}
 	if p.cb_close != nil {
-		p.cb_close(false)
+		p.cb_close(p, false, err)
 	}
 }
 
 func (p *TcpClient) do_recv_loop() {
+	var err error
 	for {
-		packet, err := p.handle.RecvPacket(p.Conn, -1)
+		packet, err := p.packet_handle.RecvPacket(p.Conn, -1)
 		if err != nil {
-			log.Printf("TcpClient|host:%s, port:%d, RecvPacket error:%#v", p.host, p.port, err)
+			err = errors.New(fmt.Sprintf("do_recv_loop RecvPacket error:%#v", err))
 			break
 		}
 		if p.cb_recv != nil {
 			if err := p.cb_recv(p, packet); err != nil {
-				log.Printf("TcpClient|host:%s, port:%d, cb_recv error:%#v", p.host, p.port, err)
+				err = errors.New(fmt.Sprintf("do_recv_loop cb_recv error:%#v", err))
 				break
 			}
 		}
 	}
 	if p.cb_close != nil {
-		p.cb_close(false)
+		p.cb_close(p, false, err)
 	}
 }

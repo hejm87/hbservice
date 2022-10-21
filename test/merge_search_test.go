@@ -12,10 +12,7 @@ func TestMergeSearch(t *testing.T) {
 		return key, nil
 	}
 
-	obj := &util.MergeSearch[string, string] {
-		Fun:	f,
-	}
-	obj.Init()
+	obj := util.NewMergeSearch[string, string](f)
 
 	key := "haobi"
 	for x := 0; x < 10; x += 1 {

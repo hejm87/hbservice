@@ -123,7 +123,7 @@ func (p *EchoLogicHandle) do_echo(body interface{}) (net_core.Packet, error) {
 
 func main() {
 	server_params := get_server_params()
-	log.Printf("ready container.Run ...")
+	log.Printf("ready container.Run, server_params:%#v", server_params)
 	if err := container.Run(server_params); err != nil {
 		log.Fatalf("container.Run error:%#v", err)
 	}

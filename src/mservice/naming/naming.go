@@ -1,17 +1,21 @@
 package naming
 
 import (
+	"fmt"
 	"time"
 	"sync"
+	"errors"
 	"strings"
 	"strconv"
 	"context"
 	"hbservice/src/util"
+	"hbservice/src/mservice/util"
+	"hbservice/src/mservice/define"
 )
 
 const (
-	kServicePut		int = 1
-	kServiceDel		int = 2
+	ServicePut		int = 1
+	ServiceDel		int = 2
 	
 	kNameServiceDir			string = "NameService"
 
@@ -20,14 +24,14 @@ const (
 	kErrorServiceIdNotRegister			string = "service_id not register"
 )
 
-type ServiceInfo {
+type ServiceInfo struct {
 	Name		string
 	ServiceId	string		// {服务名}_{seq_id}
 	Host		string
 	Port		int
 }
 
-type ServiceChange {
+type ServiceChange struct {
 	Service			ServiceInfo
 	Op				int
 }
@@ -49,7 +53,10 @@ var (
 
 func GetInstance() *Naming {
 	once.Do(func() {
-		instance = new(Naming)
+		instance = &Naming {
+			watch_cancels:		make(map[string]context.CancelFunc),
+			register_cancels:	make(map[string]context.CancelFunc),
+		}
 	})
 	return instance
 }
@@ -57,10 +64,10 @@ func GetInstance() *Naming {
 type ChangeCb func([]ServiceChange)
 
 func (p *Naming) Find(name string) (infos []ServiceInfo, err error) {
-	prefix := p.get_prefix()
+	prefix := p.get_prefix(name)
 	result, err := mservice_util.GetEtcdInstance().GetWithPrefix(prefix)
 	if err != nil {
-		return services, err
+		return infos, err
 	}
 	for k, v := range result {
 		if info, ok := p.convert_str_to_service_info(k, v); ok {
@@ -76,15 +83,15 @@ func (p *Naming) Subscribe(name string, cb ChangeCb) error {
 	if _, ok := p.watch_cancels[name]; ok {
 		return errors.New(kErrorKeyAlreadyWatch)
 	}
-	watch_f := func(results []WatchResult) {
+	watch_f := func(results []util.WatchResult) {
 		var changes []ServiceChange
-		for w := range results {
-			if service, ok := p.get_service_info(w.Key, w.Value); ok {
+		for _, w := range results {
+			if service, ok := p.convert_str_to_service_info(w.Key, w.Value); ok {
 				var op int
-				if w.Type == ETCD_PUT {
-					op = kServicePut
+				if w.Type == util.ETCD_PUT {
+					op = ServicePut
 				} else {
-					op = kServiceDel
+					op = ServiceDel
 				}
 				change := ServiceChange {
 					Service:	service,
@@ -95,7 +102,7 @@ func (p *Naming) Subscribe(name string, cb ChangeCb) error {
 		}
 		cb(changes)
 	}
-	ctx, cancel := context.WithCancel()
+	ctx, cancel := context.WithCancel(context.TODO())
 	p.watch_cancels[name] = cancel
 	go func() {
 		mservice_util.GetEtcdInstance().Watch(ctx, name, true, watch_f)
@@ -114,22 +121,23 @@ func (p *Naming) Unsubscribe(name string) {
 
 func (p *Naming) Register(info ServiceInfo) error {
 	p.Lock()
-	defer p.Unlock()
 	if _, ok := p.register_cancels[info.ServiceId]; ok {
 		return errors.New(kErrorServiceIdAlreadyRegister)
 	}
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	p.register_cancels[info.ServiceId] = cancel
+	p.Unlock()
 
-	cfg := util.GetConfigValue[mservice_define.MServiceConfig].Service
+	cfg := util.GetConfigValue[mservice_define.MServiceConfig]().Service
 	k, v := p.convert_service_info_to_str(info)
-	if lease_id, err := mservice_util.GetEtcdInstance().PutWithTimeout(k, v, cfg.KeepAliveTtl); err != nil {
+	lease_id, err := mservice_util.GetEtcdInstance().PutWithTimeout(k, v, int64(cfg.KeepAliveTtl))
+	if err != nil {
 		return err
 	}
 
 	go func() {
-		timer := time.NewTricker(time.Duration(cfg.KeepAlive) * time.Second)
+		timer := time.NewTicker(time.Duration(cfg.KeepAliveTtl) * time.Second)
 		for {
 			select {
 			case <-ctx.Done():
@@ -146,7 +154,8 @@ func (p *Naming) Register(info ServiceInfo) error {
 func (p *Naming) Deregister(service_id string) error {
 	p.Lock()
 	defer p.Unlock()
-	if cancel, ok := p.register_cancels[service_id]; !ok {
+	cancel, ok := p.register_cancels[service_id]
+	if !ok {
 		return errors.New(kErrorServiceIdNotRegister)
 	}
 	cancel()
@@ -156,14 +165,15 @@ func (p *Naming) Deregister(service_id string) error {
 func (p *Naming) convert_str_to_service_info(key string, value string) (service ServiceInfo, ok bool) {
 	keys := strings.Split(key, "_")
 	values := strings.Split(value, ":")
-	if len(keys) != 2 || len(values) != 2 {
+	port, err := strconv.Atoi(values[1])
+	if len(keys) != 2 || len(values) != 2 || err != nil {
 		return service, false
 	}
 	result := ServiceInfo {
-		Name:	keys[0],
-		SeqId:	key,
-		Host:	values[0],
-		Port:	strconv.Atoi(values[1]),
+		Name:		keys[0],
+		ServiceId:	key,
+		Host:		values[0],
+		Port:		port,
 	}
 	return result, true
 }
@@ -174,6 +184,6 @@ func (p *Naming) convert_service_info_to_str(info ServiceInfo) (k string, v stri
 	return k, v
 }
 
-func (p *Naming) get_prefix(name) string {
+func (p *Naming) get_prefix(name string) string {
 	return kNameServiceDir + "/" + name + "/" + name
 }

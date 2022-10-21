@@ -6,19 +6,24 @@ import (
 	"github.com/segmentio/ksuid"
 	"hbservice/src/util"
 	"hbservice/src/net/net_core"
+	"hbservice/src/mservice"
 	"hbservice/src/mservice/define"
 	"hbservice/src/server/gateway/define"
+)
+
+const (
+	GATEWAY_CONF
 )
 
 type GatewayHandle struct {}
 
 func (p *GatewayHandle) Init(server net_core.NetServer) error {
-	cfg := util.GetConfigValue[gateway_define.GatewayConfig]().Common
+	cfg := util.GetConfigValue[gateway_define.GatewayConfig]()
 	param := net_core.NetTimerParam {
 		Id:		"eliminate_user",
 		Type:	util.TIMER_PERIOD,
 		Delay:	0,
-		Period:	cfg.UserHeartbeatSec * 3,
+		Period:	cfg.Common.UserHeartbeatSec * 3,
 	}
 	server.SetTimer(param, p)
 	return nil
@@ -40,7 +45,7 @@ func (p *GatewayHandle) OnMessage(channel_id string, packet net_core.Packet, ser
 		resp_packet, err = p.do_heartbeat(gw_packet.Header.Uid)
 	} else if gw_packet.Header.Cmd == gateway_define.GW_CMD {
 		mpacket := gw_packet.Body.(*mservice_define.MServicePacket)	
-		resp_packet, err = p.do_cmd(mpacket)
+		resp_packet, err = p.do_cmd(gw_packet.Header.Uid, mpacket)
 	}
 	if resp_packet != nil {
 		server.PushChannel(channel_id, resp_packet)
@@ -58,31 +63,63 @@ func (p *GatewayHandle) OnTimer(timer_id string, value interface {}, server net_
 	}
 }
 
-func (p *GatewayHandle) do_login(uid string) (net_core.Packet, error) {
-	return nil, nil
-}
-
-func (p *GatewayHandle) do_logout(uid string) (net_core.Packet, error) {
-	return nil, nil
-}
-
-func (p *GatewayHandle) do_heartbeat(uid string) (net_core.Packet, error) {
-	if GetGWUsersInstance().UpdateUser(uid) == true {
-		// 填写逻辑代码
-		return nil, nil
+// 对于登录/登出目前没有具体操作，返回成功即可
+func (p *GatewayHandle) do_login(req *MGatewayPacket) (*MGatewayPacket, error) {
+	resp := &gateway_define.GWLoginResp {}
+	err := GetUserConnsInstance().AddUserConn(uid, channel_id)
+	if err != nil {
+		resp.Err = err.Error()
 	}
-	return nil, nil
+	resp_packet := gateway_define.CreateRespPacket(
+		req.Header.Uid,
+		req.Header.Cmd,
+		resp,
+	)
+	return resp_packet, nil
 }
 
-func (p *GatewayHandle) do_cmd(packet *mservice_define.MServicePacket) (net_core.Packet, error) {
-	return nil, nil
+func (p *GatewayHandle) do_logout(req *MGatewayPacket) (*MGatewayPacket, error) {
+	resp := &gateway_define.GWLogoutResp {}
+	ok := GetUserConnsInstance().RemoveUserConn()
+	if !ok {
+		resp.Err = "user conn not exists"
+	}
+	resp_packet := gateway_define.CreateRespPacket(
+		req.Header.Uid,
+		req.Header.Cmd,
+		resp,
+	)
+	return resp_packet, nil
+}
+
+func (p *GatewayHandle) do_heartbeat(req *MGatewayPacket) (*MGatewayPacket, error) {
+	hash := util.GenHash(req.Header.Uid)
+	req := online_define.OLHeartbeatReq {
+		User:	UserNode {
+			Uid:		req.Header.Uid,
+			ServiceId:	container.GetServiceId(),
+		},
+	}
+	resp, err := container.Cast[mservice_define.OLHeartbeatReq](hash, req)
+	if err != nil {
+		return nil, err
+	}
+	resp_packet := gateway_define.CreateRespPacket(
+		req.Header.Uid,
+		req.Header.Cmd,
+		gateway_define.GWHeartbeatResp {Err: ""},
+	)
+	return resp_packet, nil
+}
+
+func (p *GatewayHandle) do_cmd(req *MGatewayPacket) (*MGatewayPacket, error) {
+	req_packet := req.Body.(*MServicePacket)
+	return container.CallByPacket(util.GenHash(req.Header.Uid), req_packet)
 }
 
 func (p *GatewayHandle) eliminate_user(server net_core.NetServer) {
-	users := GetGWUsersInstance().GetOverdueUsers()
+	users := GetUserConnsInstance().GetTimeoutUserConns()
 	for _, x := range users {
-		log.Printf("INFO|GatewayHandle|eliminate_user, user:%s, channel_id:%s", x.Uid, x.ChannelId)
-		server.CloseChannel(x.ChannelId)
+		service.CloseChannel(x.ChannelId)
 	}
-	return
 }

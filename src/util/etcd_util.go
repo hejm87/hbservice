@@ -3,7 +3,6 @@ package util
 import (
 	"log"
 	"time"
-	"errors"
 	"context"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/coreos/etcd/clientv3"

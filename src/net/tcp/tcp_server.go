@@ -1,8 +1,8 @@
 package tcp_server
 
 import (
-	"log"
 	"fmt"
+	"log"
 	"net"
 	"errors"
 	"context"
@@ -43,9 +43,11 @@ func (p *TcpServer) Start() error {
 	for _, x := range p.params {
 		addr := fmt.Sprintf("%s:%d", x.Host, x.Port)
 		if sock, err := net.Listen("tcp", addr); err == nil {
+			log.Printf("INFO|TcpServer|listen addr:%s success", addr)
 			p.srv_socks[x.Name] = sock
 			go p.start_logic_service(x, sock)
 		} else {
+			log.Printf("ERROR|TcpServer|listen addr:%s error:%#v", addr, err)
 			return err
 		}
 	}

@@ -6,7 +6,9 @@
 5. 将client端连接断开的报错改为正常断开日志
 6. etcd的client是否线程安全，内部实现是否池化
 7. pusher_handle.go, get_uid_addr存在并发性能问题
-8. obj_client需要区分call, cast处理
+8. obj_client需要区分call、cast处理，以及后续的实现
+   (1) OnMessage是否需要拆分为OnCallMessage、OnCastMessage
+   (2) obj_client的Call、Cast接口也不用MServicePacket
 
 
 微服务网关功能要求：

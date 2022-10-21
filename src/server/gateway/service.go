@@ -19,7 +19,7 @@ func main() {
 func get_server_params() []net_core.NetServerParam {
 	var params []net_core.NetServerParam
 	params = append(
-		params, 
+		params,
 		net_core.NetServerParam {
 			LogicHandle:	&gateway_handle.GatewayHandle {},
 			PacketHandle:	&gateway_define.GWPacketHandle {},

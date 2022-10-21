@@ -53,6 +53,7 @@ type NetServerParam struct {
 	LogicHandle
 	PacketHandle
 	Name		string
+	Iface		string
 	Host		string
 	Port		int
 }

@@ -21,7 +21,7 @@ type MergeSearch[K comparable, V any] struct {
 func NewMergeSearch[K comparable, V any](f func(K) (V, error)) *MergeSearch[K, V] {
 	obj := &MergeSearch[K, V] {
 		caches:		make(map[K] int),
-		waits:		make(map[K] Result),
+		waits:		make(map[K] Results),
 		fun:		f,	
 	}
 	return obj
@@ -34,7 +34,7 @@ func (p *MergeSearch[K, V]) Call(key K) (V, error) {
 	if _, ok := p.caches[key]; !ok {
 		p.caches[key] = 1
 		p.Unlock()
-		value, err = p.Fun(key)
+		value, err = p.fun(key)
 
 		var waits Results
 		p.Lock()

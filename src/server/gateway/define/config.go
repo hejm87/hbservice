@@ -1,7 +1,7 @@
 package gateway_define
 
 type GatewayListen struct {
-	Host		string
+	Interface	string
 	Port		int
 }
 

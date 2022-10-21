@@ -27,7 +27,7 @@ func GetRedisInstance() *redis.Client {
 	return redis_instance
 }
 
-func GetEtcdInstance() *Etcd {
+func GetEtcdInstance() *util.Etcd {
 	etcd_once.Do(func() {
 		cfg := util.GetConfigValue[mservice_define.MServiceConfig]().EtcdCfg
 		etcd_instance = util.NewEtcd(cfg.Addrs, cfg.Username, cfg.Password)

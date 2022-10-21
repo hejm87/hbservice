@@ -47,18 +47,73 @@ func NetRecvTimeout(conn net.Conn, buf []byte, size int, timeout *time.Time) (in
 	return read_size, nil
 }
 
-func GetLocalIp() ([]string, error) {
-	var ips []string
-    addrs, err := net.InterfaceAddrs()
-    if err != nil {
-        return ips, err
+type NetInterfaceInfo struct {
+	Name			string		// 网卡接口名
+	IpAddr			string		// ip地址
+	MacAddr			string		// mac地址
+	Mtu				int
+}
+
+func GetIfaceIpAddr(iface_name string) (ip string, err error) {
+	ifaces, err := GetActiveNetInterfaces()
+	if err != nil {
+		return ip, err
+	}
+	for _, x := range ifaces {
+		if iface_name == x.Name {
+			return x.IpAddr, nil
+		}
+	}
+	return "", errors.New("not exists iface")
+}
+
+func GetActiveNetInterfaces() (infos []NetInterfaceInfo, err error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return infos, err
+	}
+	for _, iface := range ifaces {
+		if iface.Flags & net.FlagUp == 0 {
+			continue
+		}
+		if iface.Flags & net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip := get_ip_from_addr(addr)
+			if ip != nil {
+				info := NetInterfaceInfo {
+					Name:		iface.Name,
+					IpAddr:		ip.String(),
+					MacAddr:	iface.HardwareAddr.String(),
+					Mtu:		iface.MTU,
+				}
+				infos = append(infos, info)
+				break
+			}
+		}
+	}
+	return infos, nil
+}
+
+func get_ip_from_addr(addr net.Addr) net.IP {
+    var ip net.IP
+    switch v := addr.(type) {
+    case *net.IPNet:
+        ip = v.IP
+    case *net.IPAddr:
+        ip = v.IP
+    }   
+    if ip == nil || ip.IsLoopback() {
+        return nil 
     }
-    for _, value := range addrs {
-        if ipnet, ok := value.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-            if ipnet.IP.To4() != nil {
-				ips = append(ips, ipnet.IP.String())
-            }
-        }
+    ip = ip.To4()
+    if ip == nil {
+        return nil
     }
-	return ips, nil
+    return ip
 }

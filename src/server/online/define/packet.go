@@ -6,47 +6,48 @@ import (
 
 const (
 	// for gateway
-	MS_ONLINE_LOGIN				string = "MS_ONLINE_LOGIN"
-	MS_ONLINE_LOGOUT			string = "MS_ONLINE_LOGOUT"
-	MS_ONLINE_HEARTBEA			string = "MS_ONLINE_HEARTBEAT"
+	MS_ONLINE_HEARTBEAT				string = "MS_ONLINE_HEARTBEAT"
 
 	// for mservice
-	MS_ONLINE_GET_UID_ADDR		string = "MS_ONLINE_GET_UID_ADDR"
+	MS_ONLINE_GET_USER_NODE			string = "MS_ONLINE_GET_USER_NODE"
+	MS_ONLINE_GET_USER_NODE_BATCH	string = "MS_ONLINE_GET_USER_NODE_BATCH"
 
-	SERVICE_NAME				string = "online"
+	// error code
+	ERR_NOT_EXIST_USER				string = "not exist user"
+
+	SERVICE_NAME					string = "online"
 )
 
-type OLLoginReq struct {
-	Uid				string
-	ChannelId		string
-}
-
-type OLLoginResp struct {
-	Err				error
-}
-
-type OLLogoutReq struct {
-	Uid				string
-}
-
-type OLLogoutResp struct {
-	Err				error
-}
-
 type OLHeartbeatReq struct {
-	Uid				string
-	ChannelId		string
+	User 			UserNode
 }
 
 type OLHeartbeatResp struct {
-	Err				error
+	Err				string
 }
 
-type OLGetUidAddrReq struct {
+type OLGetUserNodeReq struct {
 	Uid				string
 }
 
-type OLGetUidAddrResp struct {
-	Err				error
-	Addr			string
+type OLGetUserNodeResp struct {
+	Err				string
+	User			UserNode
+}
+
+type OLGetUserNodeBatchReq struct {
+	Uids			[]string
+}
+
+type OLGetUserNodeBatchResp struct {
+	Err				string
+	Users			[]UserNode
+}
+
+
+type UserNode {
+	Uid				string
+	ServiceId		string
+	Host			string
+	Port			int
 }

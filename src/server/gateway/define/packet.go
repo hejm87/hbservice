@@ -16,6 +16,8 @@ const (
 
 	GW_DIRECT_REQ	int = 0
 	GW_DIRECT_RESP	int = 1
+
+	SERVICE_NAME	string = "push"
 )
 
 //////////////////////////////////////////////////////
@@ -36,6 +38,17 @@ func (p *MGatewayPacket) ToStr() string {
 	return ""
 }
 
+func CreateRespPacket(uid string, cmd string, body interface {}) *MGatewayPacket {
+	return &MGatewayPacket {
+		Header:		MGatewayHeader {
+			Uid:	uid,
+			Cmd:	cmd,
+			Direct:	GW_DIRECT_RESP,
+		},
+		Body:		body,
+	}
+}
+
 //////////////////////////////////////////////////////
 //					对外网关协议内容
 //////////////////////////////////////////////////////
@@ -44,8 +57,7 @@ type GWLoginReq struct {
 }
 
 type GWLoginResp struct {
-	Result			int		// 登录结果，0：成功，其他：失败
-	ErrMsg			string
+	Err				string
 }
 
 type GWLogoutReq struct {
@@ -53,8 +65,7 @@ type GWLogoutReq struct {
 }
 
 type GWLogoutResp struct {
-	Result			int		// 登出结果，0：成功，其他：失败
-	ErrMsg			string
+	Err				string
 }
 
 type GWHeartbeatReq struct {
@@ -62,8 +73,7 @@ type GWHeartbeatReq struct {
 }
 
 type GWHeartbeatResp struct {
-	Result			int
-	ErrMsg			string
+	Err				string
 }
 
 type GWCmdReq struct {
@@ -73,8 +83,7 @@ type GWCmdReq struct {
 }
 
 type GWCmdResp struct {
-	Result			int
-	ErrMsg			string
+	Err				string
 	Body			interface {}
 }
 

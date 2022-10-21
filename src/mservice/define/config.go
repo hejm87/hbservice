@@ -11,6 +11,7 @@ type EtcdConfig struct {
 }
 
 type ObjClientConfig struct {
+	MaxCacheSize			int		// 对象最大缓存发送中包数量
 	HeartbeatTs				int		// 心跳发送间隔
 	RetryConnectSec			int		// 重连时长
 	CallTimeoutSec			int		// 同步调用超时（单位：秒）
@@ -28,7 +29,7 @@ type RedisConfig struct {
 
 type ServiceInfo struct {
 	Name					string		// 服务名
-	ListenHost				string		// 监听地址
+	ListenIface				string		// 监听使用网络接口
 	ListenPort				int			// 监听端口
 	KeepAliveTtl			int			// 服务上报etcd的ttl
 	OpenPerformanceMonitor	bool		// 是否开启性能监控

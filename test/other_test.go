@@ -44,7 +44,7 @@ func TestJsonToMapstruct (t *testing.T) {
     t.Logf("struct.Count:%d\n", cpacket.Count)
     for i := 0; i < cpacket.Count; i += 1 {
         var resp TestResp
-        if err := mapstructure.Decode(cpacket.Item[i].Body, &resp); err != nil {
+        if err := mapstructure.Decode(cpacket.Items[i].Body, &resp); err != nil {
             t.Logf("convert_map_struct, error:%#v\n", err)
         }
         t.Logf("struct.Item[%d].Cmd:%s\n", i, cpacket.Items[i].Cmd)

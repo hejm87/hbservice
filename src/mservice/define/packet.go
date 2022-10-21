@@ -20,7 +20,7 @@ const (
 type MServiceHeader struct {
 	Service			string		// 服务名
 	Method			string		// 方法名
-	TraceID			string		// 追踪id
+	TraceId			string		// 追踪id
 	CallType		int			// 调用方式, 取值: MS_CALL, MS_CAST
 	Direction		int			// 请求/回复方向, 取值:MS_REQUEST, MS_RESPONSE
 }
@@ -32,6 +32,32 @@ type MServicePacket struct {
 
 func (p *MServicePacket) ToStr() string {
 	return ""
+}
+
+func CreateReqPacket(service string, method string, call_type int, body interface {}) *MServicePacket {
+	return &MServicePacket {
+		Header:		MServiceHeader {
+			Service:	service,
+			Method:		method,
+			TraceId:	util.GenUuid(),
+			CallType:	call_type,
+			Direction:	MS_REQUEST,
+		},
+		Body:		body,
+	}
+}
+
+func CreateRespPacket(service string, method string, trace_id string, call_type int, body interface {}) *MServicePacket {
+	return &MServicePacket {
+		Header:		MServiceHeader {
+			Service:	service,
+			Method:		method,
+			TraceId:	trace_id,
+			CallType:	call_type,
+			Direction:	MS_RESPONSE,
+		},
+		Body:		body,
+	}
 }
 
 type MPacketHandle struct {}

@@ -3,9 +3,7 @@ package container
 import (
 	"fmt"
 	"log"
-	"time"
 	"sync"
-	"errors"
 	"context"
 	"net/http"
 	_ "net/http/pprof"
@@ -13,6 +11,7 @@ import (
 	"hbservice/src/net/tcp"
 	"hbservice/src/net/net_core"
 	"hbservice/src/mservice/define"
+	"hbservice/src/mservice/naming"
 	"hbservice/src/mservice/obj_client"
 )
 
@@ -26,180 +25,165 @@ var (
 	once			sync.Once
 )
 
-type Container struct {
-	lease_id		int64
-
-	obj_proxys		map[string]*ObjectProxy		
-
-	ctx				context.Context
-	cancel			context.CancelFunc
-	sync.Mutex
-	net_core.NetServer
-}
-
-func GetInstance() *Container {
+func container_instance() *Container {
 	once.Do(func() {
+		if err := util.SetConfigByFileLoader[mservice_define.MServiceConfig]("./mservice.cfg"); err != nil {
+			panic(fmt.Sprintf("loader mservice.cfg error:%#v", err))
+		}
+		cfg := util.GetConfigValue[mservice_define.MServiceConfig]().Service
 		instance = &Container {
-			obj_mgr: obj_client.NewObjClientMgr(&MPacketHandle{})
+			name: 		cfg.Name,
+			service_id:	fmt.Sprintf("%s_%s", cfg.Name, util.GenUuid()),
+		}
+		if err := instance.init_container(); err == nil {
+			log.Printf("INFO|container|init success")
+		} else {
+			panic(fmt.Sprintf("container:%s init error:%#v", cfg.Name, err))
 		}
 	})
 	return instance
 }
 
-func (p *Container) Run(params []net_core.NetServerParam) error {
-	if err := p.init(); err != nil {
-		return err
-	}
-	new_params, err := p.set_server_params(params)
+func Run(params []net_core.NetServerParam) error {
+	log.Printf("INFO|container|ready to run, net_params:%#v", params)
+	c := container_instance()
+	new_params, err := c.set_server_params(params)
 	if err != nil {
 		return err
 	}
-
-	p.NetServer = tcp_server.NetServer(new_params)
-	go p.NetServer.Start()
-
-	p.do_keep_alive_util_shutdown()
-
+	log.Printf("INFO|container|ready start NetServer, net_params:%#v", new_params)
+	c.NetServer = tcp_server.NetServer(new_params)
+	go c.NetServer.Start()
+	select {
+	case <-c.ctx.Done():
+		c.NetServer.Shutdown()
+	}
 	return nil
 }
 
-func (p *Container) Shutdown() {
-	p.NetServer.Shutdown()
-	p.cancel()
+func Shutdown() {
+	container_instance().cancel()
 }
 
-func (p *Container) Call(hash uint32, req *mserivce_define.MServicePacket) (*mservice_define.MServicePacket, error) {
-	proxy, err := p.get_proxy(req.Header.Service)
+func GetServiceId() string {
+	return container_instance().service_id
+}
+
+func Call[REQ any, RESP any](hash uint32, service string, method string, req REQ) (resp RESP, err error) {
+	req_packet := mservice_define.CreateReqPacket(
+		service, 
+		method,
+		mservice_define.MS_CALL,
+		req,
+	)
+	resp_packet, err := obj_client.GetInstance().Call(hash, req_packet)
 	if err != nil {
-		return nil, err
+		return resp, err
 	}
-	return proxy.Call(hash, req)
+	return resp_packet.Body.(RESP), nil	
 }
 
-func (p *Container) CallByAddr(addr string, req *mserivce_define.MServicePacket) (*mservice_define.MServicePacket, error) {
-	proxy, err := p.get_proxy(req.Header.Service)
-	if err != nil {
-		return nil, err
-	}
-	return proxy.Call(addr, req)
+func CallAsync[REQ any, RESP any](hash uint32, service string, method string, req REQ, cb obj_client.RespPacketCb) {
+	req_packet := mservice_define.CreateReqPacket(
+		service, 
+		method,
+		mservice_define.MS_CALL,
+		req,
+	)
+	obj_client.GetInstance().CallAsync(hash, req_packet, cb)
 }
 
-func (p *Container) CallAsync(hash uint32, req *mserivce_define.MServicePacket) error {
-	proxy, err := p.get_proxy(req.Header.Service)
-	if err != nil {
-		return nil, err
-	}
-	return proxy.CallAsync(hash, req)
+func Cast[REQ any](hash uint32, service string, method string, req REQ) {
+	req_packet := mservice_define.CreateReqPacket(
+		service, 
+		method,
+		mservice_define.MS_CAST,
+		req,
+	)
+	obj_client.GetInstance().Cast(hash, req_packet)
 }
 
-func (p *Container) CallAsyncByAddr(addr string, req *mserivce_define.MServicePacket) error {
-	proxy, err := p.get_proxy(req.Header.Service)
-	if err != nil {
-		return nil, err
-	}
-	return proxy.CallAsyncByAddr(hash, req)
+func CallByPacket(hash uint32, req *mservice_define.MServicePacket) (*mservice_define.MServicePacket, error) {
+	return obj_client.GetInstance().Call(hash, req)
 }
 
-func (p *Container) Cast(hash uint32, req *mserivce_define.MServicePacket) error {
-	proxy, err := p.get_proxy(req.Header.Service)
-	if err != nil {
-		return nil, err
-	}
-	return proxy.Cast(hash, req)
+func CallAsyncByPacket(hash uint32, req *mservice_define.MServicePacket, cb obj_client.RespPacketCb) {
+	obj_client.GetInstance().CallAsync(hash, req, cb)
 }
 
-func (p *Container) CastByAddr(addr string, req *mserivce_define.MServicePacket) error {
-	proxy, err := p.get_proxy(req.Header.Service)
-	if err != nil {
-		return nil, err
-	}
-	return proxy.CastByAddr(addr, req)
+func CastByPacket(hash uint32, req *mservice_define.MServicePacket) {
+	obj_client.GetInstance().Cast(hash, req)
 }
 
-func (p *Container) init() error {
-	var err error
-	if err = util.SetConfigByFileLoader[mservice_define.MServiceConfig]("./mservice.cfg"); err != nil {
-		return err
-	}
-	p.cfg = util.GetConfigValue[mservice_define.MServiceConfig]()
-	if p.cfg.CommonCfg.OpenPerformanceMonitor == true {
+
+/////////////////////////////////////////////////////////////////////
+//						container struct
+/////////////////////////////////////////////////////////////////////
+type Container struct {
+	name			string
+	service_id		string
+	ctx				context.Context
+	cancel			context.CancelFunc
+	net_core.NetServer
+	sync.Mutex
+}
+
+func (p *Container) init_container() error {
+	cfg := util.GetConfigValue[mservice_define.MServiceConfig]()
+	if cfg.Service.OpenPerformanceMonitor == true {
 		go func() {
 			http.ListenAndServe("0.0.0.0:8000", nil)
 		} ()
 	}
-
 	p.ctx, p.cancel = context.WithCancel(context.Background())
-
-	p.lease_id, err = mservice_util.GetEtcdInstance().PutWithTimeout(p.get_service_tag(), "ok", int64(NAMING_OVERDUE))
+	service_info, err := p.get_service_info()
 	if err != nil {
 		return err
 	}
-	return nil
+	return naming.GetInstance().Register(service_info)
 }
 
-func (p *Container) get_obj_proxy(name string) (*ObjectProxy, error) {
-	p.Lock()
-	defer p.Unlock()
-	proxy, ok := p.obj_proxys[name]
-	if ok {
-		return proxy, nil
+func (p *Container) get_service_info() (info naming.ServiceInfo, err error) {
+	cfg := util.GetConfigValue[mservice_define.MServiceConfig]()
+	host, err := util.GetIfaceIpAddr(cfg.Service.ListenIface)
+	if err != nil {
+		return info, err
 	}
-	proxy = NewObjectProxy(name, &MPacketHandle {})
-	if err := proxy.Start(); err != nil {
-		return nil, err
+	info = naming.ServiceInfo {
+		Name:		p.name,
+		ServiceId:	p.service_id,
+		Host:		host,
+		Port:		cfg.Service.ListenPort,
 	}
-	p.obj_proxys[name] = proxy
-	return proxy, nil
+	return info, nil
 }
 
-func (p *Container) do_keep_alive_util_shutdown() {
-	for {
-		select {
-		case <-p.ctx.Done():
-			break
-		case <-time.After(time.Duration(NAMING_HEARTBEAT_TS) * time.Second):
-			if err := mservice_util.GetEtcdInstance().KeepAlive(p.lease_id); err != nil {
-				log.Printf("ERROR|container|KeepAlive error:%#v", err)
-			}
-		}
-	}
-}
-
-func (p *Container) set_server_params(params []net_core.NetServerParam) ([]net_core.NetServerParam, error) {
+func (p *Container) set_server_params(params []net_core.NetServerParam) (result []net_core.NetServerParam, err error) {
+	cfg := util.GetConfigValue[mservice_define.MServiceConfig]().Service
 	var new_params []net_core.NetServerParam
 	for _, x := range params {
-		if x.Name == "" && x.Host == "" && x.Port == 0 {
-			// 默认服务重置服务信息
-			cfg := util.GetConfigValue[mservice_define.MServiceConfig]().Service
-			param := net_core.NetServerParam {
-				Name:	cfg.Name,
-				Host:	cfg.ListenHost,
-				Port:	cfg.ListenPort,
-				LogicHandle:	x.LogicHandle,
-				PacketHandle:	x.PacketHandle,
+		var err  error
+		host := x.Host
+		port := x.Port
+		if host == "" {
+			iface := x.Iface
+			if iface == "" {
+				iface = cfg.ListenIface
 			}
-			new_params = append(new_params, param)
-		} else if x.Name != "" && x.Host != "" && x.Port > 0 {
-			new_params = append(new_params, x)
-			continue
-		} else {
-			return new_params, errors.New("server_params exception")
+			if host, err = util.GetIfaceIpAddr(iface); err != nil {
+				continue
+			}
 		}
+		if port == 0 {
+			port = cfg.ListenPort
+		}
+		new_param := net_core.NetServerParam {
+			Host:			host,
+			Port:			port,
+			LogicHandle:	x.LogicHandle,
+			PacketHandle:	x.PacketHandle,
+		}
+		new_params = append(new_params, new_param)
 	}
 	return new_params, nil
-}
-
-func (p *Container) get_service_tag() string {
-	ips, err := util.GetLocalIp()
-	if err != nil || len(ips) == 0 {
-		log.Fatalf("FATAL|container|can`t get local ip")
-	}
-	return fmt.Sprintf("%s/%s/%s_%s:%d_%s",
-		obj_client.NameServiceDir, 
-		p.cfg.Service.Name,
-		p.cfg.Service.Name,
-		ips[0],
-		p.cfg.Service.ListenPort,
-		util.GenUuid(),
-	)
 }

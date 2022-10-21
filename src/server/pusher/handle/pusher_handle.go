@@ -39,10 +39,13 @@ type PusherHandle struct {
 }
 
 func (p *PusherHandle) Init(server net_core.NetServer) error {
-	util.SetConfigByFileLoader[pusher_define.PusherConfig](
+	err := util.SetConfigByFileLoader[pusher_define.PusherConfig](
 		mservice_util.GetEtcdInstance(),
 		mservice_define.SERVICE_ETCD_CONFIG_PATH + "/pusher.config"
 	)
+	if err != nil {
+		return err
+	}
 	p.cfg := util.GetConfigValue[pusher_define.PusherConfig]()
 
 	p.user_caches = util.NewLruCache[string, *UserInfo]
