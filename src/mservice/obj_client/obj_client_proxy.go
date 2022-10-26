@@ -76,8 +76,6 @@ type CallRecord struct {
 // 目录: /mservice/{服务名}/{服务名}_{host}:{port}_{seq}
 type ClientStatus struct {
 	retry_connect_ts		int64
-//	success_count			int
-//	fail_count				int
 	series_fail_count		int
 }
 
@@ -110,7 +108,8 @@ func NewObjectProxy(name string, handle net_core.PacketHandle) *ObjectProxy {
 		handle:				handle,
 		cfg:				cfg,
 	}
-	go proxy.init()
+	proxy.init()
+	go proxy.loop_main()
 	return proxy
 }
 
@@ -133,7 +132,6 @@ func (p *ObjectProxy) Call(hash uint32, req *mservice_define.MServicePacket) (*m
 	}
 
 	p.add_to_call_queue(record)
-	p.channel_send <-record
 
 	var err error
 	var res *mservice_define.MServicePacket = nil
@@ -152,44 +150,6 @@ func (p *ObjectProxy) Call(hash uint32, req *mservice_define.MServicePacket) (*m
 	return res, err
 }
 
-//func (p *ObjectProxy) Call(hash uint32, service string, method string, req interface {}) (resp interface {}, err error) {
-//	req_packet := mservice_define.CreateReqPacket(
-//		service, 
-//		method,
-//		util.GenUuid(),
-//		mservice_define.MS_CALL,
-//		mservice_define.MS_REQUEST,
-//		body,
-//	)
-//
-//	record := &CallRecord {
-//		call_type:		kCall,
-//		hash:			hash,
-//		req:			req_packet,
-//		channel_cb:		make(chan *RespPacketResult),
-//		send_ts:		time.Now().Unix(),
-//	}
-//
-//	p.add_to_call_queue(record)
-//	p.channel_send <-record
-//
-//	var err error
-//	var res *mservice_define.MServicePacket = nil
-//	cfg := util.GetConfigValue[mservice_define.MServiceConfig]().ObjClientCfg
-//	select {
-//	case <-time.After(time.Duration(cfg.CallTimeoutSec) * time.Second):
-//		err = errors.New(kErrorCallTimeout)
-//	case result, ok := <-record.channel_cb:
-//		if ok {
-//			err = result.err
-//			res = result.packet
-//		} else {
-//			err = errors.New(kErrorCallException)
-//		}
-//	}
-//	return res, err
-//}
-
 func (p *ObjectProxy) CallAsync(hash uint32, req *mservice_define.MServicePacket, cb RespPacketCb) {
 	record := &CallRecord {
 		call_type:		kCallAsync,
@@ -201,25 +161,6 @@ func (p *ObjectProxy) CallAsync(hash uint32, req *mservice_define.MServicePacket
 	p.add_to_call_queue(record)
 }
 
-//func (p *ObjectProxy) CallAsync(hash uint32, service string, method string, req interface {}, cb RespPacketCb) {
-//	req_packet := mservice_define.CreateReqPacket(
-//		service, 
-//		method,
-//		util.GenUuid(),
-//		mservice_define.MS_CALL,
-//		mservice_define.MS_REQUEST,
-//		body,
-//	)
-//	record := &CallRecord {
-//		call_type:		kCallAsync,
-//		hash:			hash,
-//		req:			req,
-//		channel_cb:		make(chan *RespPacketResult),
-//		send_ts:		time.Now().Unix(),
-//	}
-//	p.add_to_call_queue(record)
-//}
-
 func (p *ObjectProxy) Cast(hash uint32, req *mservice_define.MServicePacket) {
 	record := &CallRecord {
 		call_type:		kCast,
@@ -230,23 +171,14 @@ func (p *ObjectProxy) Cast(hash uint32, req *mservice_define.MServicePacket) {
 	p.add_to_call_queue(record)
 }
 
-//func (p *ObjectProxy) Cast(hash uint32, service string, method string, req interface {}) {
-//	req_packet := mservice_define.CreateReqPacket(
-//		service, 
-//		method,
-//		util.GenUuid(),
-//		mservice_define.MS_CAST,
-//		mservice_define.MS_REQUEST,
-//		body,
-//	)
-//	record := &CallRecord {
-//		call_type:		kCast,
-//		hash:			hash,
-//		req:			req,
-//		send_ts:		time.Now().Unix(),
-//	}
-//	p.add_to_call_queue(record)
-//}
+func (p *ObjectProxy) Broadcast(req *mservice_define.MServicePacket) {
+	record := &CallRecord {
+		call_type:		kBroadcast,
+		req:			req,
+		send_ts:		time.Now().Unix(),
+	}
+	p.add_to_call_queue(record)
+}
 
 func (p *ObjectProxy) new_client(host string, port int, service_id string) *util.TcpClient {
 	client := util.NewTcpClient(
@@ -264,6 +196,7 @@ func (p *ObjectProxy) add_to_call_queue(record *CallRecord) {
 	p.Lock()
 	defer p.Unlock()
 	p.lru_reqs.Set(record.req.Header.TraceId, record)
+	p.channel_send <-record
 }
 
 func (p *ObjectProxy) notify_service_change(changes []naming.ServiceChange) {
@@ -277,7 +210,6 @@ func (p *ObjectProxy) notify_service_change(changes []naming.ServiceChange) {
 //				loop_main协程内处理，无竞争无需加锁
 ////////////////////////////////////////////////////////////////
 func (p *ObjectProxy) loop_main() {
-	p.init()
 	timer := time.NewTicker(1 * time.Second)
 	for {
 		select {
@@ -310,12 +242,16 @@ func (p *ObjectProxy) init() {
 		panic(err_msg)
 	}
 
+	log.Printf("ObjectProxy|init|name:%s, err:%#v, infos.size:%d", p.name, err, len(infos))
 	for _, info := range infos {
+		log.Printf("ObjectProxy|init|host:%s, port:%d, service_id:%s", info.Host, info.Port, info.ServiceId)
 		client := p.new_client(info.Host, info.Port, info.ServiceId)
-		if err := client.Connect(500); err != nil {
-			p.inactive_clients = append(p.inactive_clients, client)
-		} else {
+		if err := client.Connect(500); err == nil {
+			log.Printf("ObjectProxy|init|host:%s, port:%d, service_id:%s, connect succeed", info.Host, info.Port, info.ServiceId)
 			p.active_clients = append(p.active_clients, client)
+		} else {
+			log.Printf("ObjectProxy|init|host:%s, port:%d, service_id:%s, connect error:%s", info.Host, info.Port, info.ServiceId, err.Error())
+			p.inactive_clients = append(p.inactive_clients, client)
 		}
 	}
 }
@@ -351,10 +287,59 @@ func (p *ObjectProxy) retry_client_connect() {
 }
 
 func (p *ObjectProxy) do_send(record *CallRecord) {
-	index := int(record.hash % uint32(len(p.active_clients)))
-	client := p.active_clients[index]
-	if err := client.Send(record.req); err != nil {
-		p.remove_active_client_by_index(index)
+	if record.call_type == kBroadcast {
+		p.do_send_by_broadcast(record.req)
+	} else {
+		p.do_send_by_hash(record.hash, record.req)
+	}
+}
+
+func (p *ObjectProxy) do_send_by_hash(hash uint32, packet *mservice_define.MServicePacket) {
+	count := len(p.active_clients)
+	if count == 0 {
+		defer func() {
+			err := recover()
+			log.Printf("ERROR|ObjectProxy|do_send_by_hash|error:%#v", err)
+		} ()
+		var exists bool
+		var record *CallRecord
+		p.Lock()
+		if record, exists = p.lru_reqs.Get(packet.Header.TraceId); !exists {
+			return
+		}
+		p.lru_reqs.Remove(packet.Header.TraceId)
+		p.Unlock()
+		if record.call_type == kCall {
+			record.channel_cb <-&RespPacketResult {
+				packet:		nil,
+				err:		errors.New(kErrorCallNotExistsClient),
+			}
+		} else if record.call_type == kCallAsync {
+			record.async_cb(nil, errors.New(kErrorCallNotExistsClient))
+		}
+	} else {
+		index := int(hash % uint32(len(p.active_clients)))
+		client := p.active_clients[index]
+		if err := client.Send(packet); err != nil {
+			p.remove_active_client_by_index(index)
+		}
+	}
+}
+
+func (p *ObjectProxy) do_send_by_broadcast(packet *mservice_define.MServicePacket) {
+	var removes []string
+	for _, client := range p.active_clients {
+		if err := client.Send(packet); err != nil {
+			data := client.Param.(ClientData)
+			removes = append(removes, data.service_id)
+		}
+	}
+	for _, id := range removes {
+		for index, client := range p.active_clients {
+			if id == client.Param.(ClientData).service_id {
+				p.remove_active_client_by_index(index)
+			}
+		}
 	}
 }
 
@@ -417,7 +402,6 @@ func (p *ObjectProxy) do_client_timeout(change *EventClientChange) {
 	if index := p.find_client_index(p.active_clients, change.host, change.port, change.service_id); index >= 0 {
 		client := p.active_clients[index]
 		cdata := (client.Param).(ClientData)
-	//	cdata.status.fail_count++
 		cdata.status.series_fail_count++
 		if cdata.status.series_fail_count >= p.cfg.InvalidSeriesFailCount {
 			p.remove_active_client_by_index(index)
@@ -482,6 +466,10 @@ func (p *ObjectProxy) find_client(host string, port int, service_id string) *uti
 //					TcpClient回调函数
 /////////////////////////////////////////////////////////////
 func (p *ObjectProxy) on_client_recv(client *util.TcpClient, packet net_core.Packet) error {
+	defer func() {
+		err := recover()
+		log.Printf("ERROR|ObjectProxy|do_send_by_hash|error:%#v", err)
+	} ()
 	mpacket := packet.(*mservice_define.MServicePacket)
 
 	var exists bool

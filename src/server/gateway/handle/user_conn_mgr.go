@@ -50,6 +50,12 @@ type GWUserConnMgr struct {
 	sync.Mutex
 }
 
+func (p *GWUserConnMgr) GetCount() int {
+	p.Lock()
+	p.Unlock()
+	return int(p.zset_uid.Len())
+}
+
 func (p *GWUserConnMgr) AddUserConn(uid string, channel_id string) error {
 	p.Lock()
 	defer p.Unlock()
@@ -109,15 +115,18 @@ func (p *GWUserConnMgr) GetChannelId(uid string) (string, bool) {
 	return "", false
 }
 
-func (p *GWUserConnMgr) GetTimeoutUserConns() []string {
-	p.Lock()
-	defer p.Unlock()
-	var users []string
+func (p *GWUserConnMgr) EliminateTimeoutUserConns() []UserConnInfo {
+	p.Lock()	
+	p.Unlock()
+	var users []UserConnInfo
 	min := &util.ScoreBorder {Value: 0}
 	max := &util.ScoreBorder {Value: float64(time.Now().Unix())}
 	elems := p.zset_uid.RangeByScore(min, max, 0, -1, false)
 	for _, x := range elems {
-		users = append(users, x.Member)
-	}
+		user := p.user_conns[x.Member]
+		users = append(users, *user)
+		p.zset_uid.Remove(x.Member)
+		delete(p.user_conns, x.Member)
+	}	
 	return users
 }

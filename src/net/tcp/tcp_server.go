@@ -5,7 +5,7 @@ import (
 	"log"
 	"net"
 	"errors"
-	"context"
+//	"context"
 	"hbservice/src/util"
 	"hbservice/src/net/net_core"
 )
@@ -16,21 +16,23 @@ type CbTimerValue struct {
 }
 
 type TcpServer struct {
-	params		[]net_core.NetServerParam
-	srv_socks	map[string]net.Listener
-	channels	*net_core.ChannelMap
-	ctx			context.Context
-	cancel		context.CancelFunc
+	params			[]net_core.NetServerParam
+	srv_socks		map[string]net.Listener
+	channels		*net_core.ChannelMap
+	channel_exit	chan string
+//	ctx			context.Context
+//	cancel		context.CancelFunc
 }
 
 func NetServer(params []net_core.NetServerParam) net_core.NetServer {
-	ctx, cancel := context.WithCancel(context.Background())
+//	ctx, cancel := context.WithCancel(context.Background())
 	server := &TcpServer {
-		params:		params,
-		srv_socks:	make(map[string]net.Listener),
-		channels:	net_core.NewChannels(),
-		ctx:		ctx,
-		cancel:		cancel,
+		params:			params,
+		srv_socks:		make(map[string]net.Listener),
+		channels:		net_core.NewChannels(),
+		channel_exit:	make(chan string),	
+	//	ctx:		ctx,
+	//	cancel:		cancel,
 	}
 	return server
 }
@@ -57,7 +59,8 @@ func (p *TcpServer) Start() error {
 
 // 考虑优雅关闭
 func (p *TcpServer) Shutdown() {
-	p.cancel()
+//	p.cancel()
+	p.channel_exit <-"application shutdown"
 }
 
 func (p *TcpServer) PushChannel(id string, packet net_core.Packet) error {
@@ -111,19 +114,25 @@ func (p *TcpServer) TimerCallback(id string, value interface {}) {
 ///////////////////////////////////////////////////
 //				private function
 ///////////////////////////////////////////////////
-func (p *TcpServer) start_logic_service(param net_core.NetServerParam, srv_conn net.Listener) error {
-	fmt.Printf("TcpServer|start_logic_service, name:%s\n", param.Name)
+func (p *TcpServer) start_logic_service(param net_core.NetServerParam, srv_conn net.Listener) {
+	defer func() {
+		p.channel_exit <-"logic_service exit"
+	} ()
+	fmt.Printf("INFO|TcpServer|start_logic_service, name:%s\n", param.Name)
+	if err := param.LogicHandle.Init(p); err != nil {
+		return
+	}
 	for {
 		if cli, err := srv_conn.Accept(); err == nil {
 			go func(conn net.Conn) {
 				var id  string
 				var err error
 				if id, err = param.LogicHandle.OnAccept(conn, param.PacketHandle, p); err != nil {
-					log.Printf("tcp_server|name:%s OnAccept fail, error:%#v", param.Name, err)
+					log.Printf("INFO|TcpServer|name:%s OnAccept fail, error:%#v", param.Name, err)
 					return
 				}
 				if _, ok := p.channels.Get(id); ok {
-					log.Printf("tcp_server|name:%s, channel_id:%s exists", param.Name, id)
+					log.Printf("INFO|TcpServer|name:%s, channel_id:%s exists", param.Name, id)
 					return
 				}
 				channel := net_core.NewChannel(id, cli, param.LogicHandle, param.PacketHandle, p)
@@ -134,21 +143,22 @@ func (p *TcpServer) start_logic_service(param net_core.NetServerParam, srv_conn 
 				p.channels.Add(channel)
 				go channel.SendLoop()
 				if err = channel.RecvLoop(); err != nil {
-					log.Printf("tcp_server|name:%s RecvLoop fail, error:%#v", param.Name, err)
+					log.Printf("INFO|TcpServer|name:%s RecvLoop fail, error:%#v", param.Name, err)
 				}
 			} (cli)
 		} else {
 			// 任意一个logic_service挂掉，都需要将所有的logic_service关掉
-			log.Printf("tcp_server|name:%s Accept fail, error:%#v", param.Name, err)
+			log.Printf("INFO|TcpServer|name:%s Accept fail, error:%#v", param.Name, err)
 			break
 		}
 	}
-	return nil
+	return
 }
 
 func (p *TcpServer) wait() {
 	select {
-	case <-p.ctx.Done():
+//	case <-p.ctx.Done():
+	case <-p.channel_exit:
 		break
 	}
 }

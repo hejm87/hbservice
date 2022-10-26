@@ -9,10 +9,10 @@ import (
 	"errors"
 	"github.com/segmentio/ksuid"
 	"hbservice/src/util"
+	"hbservice/src/net/net_core"
 	"hbservice/src/mservice"
 	"hbservice/src/mservice/define"
 	"hbservice/src/mservice/naming"
-	"hbservice/src/net/net_core"
 	"hbservice/src/server/gateway/define"
 	"hbservice/src/server/online/define"
 	"hbservice/src/server/pusher/define"
@@ -45,15 +45,12 @@ type PusherHandle struct {
 }
 
 func (p *PusherHandle) Init(server net_core.NetServer) error {
-	conf_path := mservice_define.SERVICE_ETCD_CONFIG_PATH + "/pusher.config"
-	err := util.SetConfigByFileLoader[pusher_define.PusherConfig](conf_path)
-	if err != nil {
-		return err
-	}
 	p.cfg = util.GetConfigValue[pusher_define.PusherConfig]()
 
 	p.user_caches = util.NewLruCache[string, *user_info](p.cfg.UserCacheSize, nil)
 	p.get_addr_search = util.NewMergeSearch[string, string](p.get_remote_user_addr)
+
+	p.clients = make(map[string]*gw_client)
 
 	p.channel_push_small = make(chan *mservice_define.MServicePacket, p.cfg.PushChannelCount)
 	p.channel_push_large = make(chan *mservice_define.MServicePacket, p.cfg.PushChannelCount)
@@ -64,7 +61,8 @@ func (p *PusherHandle) Init(server net_core.NetServer) error {
 	naming.GetInstance().Subscribe("gateway", p.service_change)
 
 	go func() {
-		timer := time.NewTicker(time.Duration(p.cfg.RetryClientConnectTs) * time.Second)
+		dura := time.Duration(p.cfg.RetryClientConnectSec)
+		timer := time.NewTicker(dura * time.Second)
 		for {
 			select {
 			case <-timer.C:
@@ -246,7 +244,7 @@ func (p *PusherHandle) get_uid_addr(uid string) (string, error) {
 	p.Lock()
 	user := &user_info {
 		addr:		addr,
-		expire_ts:	time.Now().Unix() + int64(p.cfg.UserCacheTs),
+		expire_ts:	time.Now().Unix() + int64(p.cfg.UserCacheSec),
 	}
 	p.user_caches.Set(uid, user)
 	p.Unlock()

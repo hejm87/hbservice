@@ -36,7 +36,6 @@ func NewEtcd(addrs []string, username, password string) *Etcd {
 		etcd_conf.Username = username
 		etcd_conf.Password = password
 	}
-
 	etcd_client, err := clientv3.New(etcd_conf)
 	if err != nil {
 		log.Fatalf("clientv3.New error:%#v", err)

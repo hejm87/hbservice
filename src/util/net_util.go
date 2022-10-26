@@ -1,9 +1,13 @@
 package util
 
 import (
+	"io"
 	"net"
+//	"net/http"
 	"time"
 	"errors"
+	"encoding/json"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -45,6 +49,13 @@ func NetRecvTimeout(conn net.Conn, buf []byte, size int, timeout *time.Time) (in
 		}
 	}
 	return read_size, nil
+}
+
+func ConvertHttpBodyToStruct[T any](r io.ReadCloser) (res T, err error) {
+	var m map[string]interface {}
+	json.NewDecoder(r).Decode(&m)
+	err = mapstructure.Decode(m, &res)
+	return res, err	
 }
 
 type NetInterfaceInfo struct {

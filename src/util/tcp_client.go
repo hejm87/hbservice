@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	stClose			int = 0
-	stConnected		int = 1
+	StateClose			int = 0
+	StateConnected		int = 1
 
 	kMaxSendChannelSize		int = 1000
 )
@@ -49,7 +49,7 @@ func NewTcpClient(host string, port int, handle net_core.PacketHandle, cb_recv R
 		Host:			host,
 		Port:			port,
 		Param:			param,
-		state:			stClose,
+		state:			StateClose,
 		packet_handle:	handle,
 		cb_recv:		cb_recv,
 		cb_close:		cb_close,
@@ -59,7 +59,7 @@ func NewTcpClient(host string, port int, handle net_core.PacketHandle, cb_recv R
 func (p *TcpClient) Connect(timeout_ms int) error {
 	p.Lock()
 	defer p.Unlock()
-	if p.state == stConnected {
+	if p.state == StateConnected {
 		return nil
 	}
 
@@ -72,8 +72,11 @@ func (p *TcpClient) Connect(timeout_ms int) error {
 	p.ctx, p.cancel = context.WithCancel(context.TODO())
 	p.channel_send = make(chan net_core.Packet, kMaxSendChannelSize)
 
-	p.state = stConnected
+	p.state = StateConnected
 	p.Conn = conn
+
+	go p.do_send_loop()
+
 	return nil
 }
 
@@ -101,10 +104,10 @@ func (p *TcpClient) close(is_active_close bool, err error) {
 		recover()
 	} ()
 	p.Lock()
-	if p.state == stClose {
+	if p.state == StateClose {
 		return
 	}
-	p.state = stClose
+	p.state = StateClose
 	p.Unlock()
 
 	if is_active_close == true {

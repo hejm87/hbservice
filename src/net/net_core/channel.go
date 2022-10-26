@@ -72,6 +72,7 @@ func (p *Channel) RecvLoop() error {
 			log.Printf("channel|id:%s GetPacket fail, error:%#v", p.channelId, err)
 			break
 		}
+		log.Printf("################ channel|RecvLoop|id:%s, error:%#v ...", p.channelId, err)
 		if err = p.LogicHandle.OnMessage(p.channelId, packet, p.server); err != nil {
 			log.Printf("channel|id:%s OnMessage fail, error:%#v", p.channelId, err)
 			break

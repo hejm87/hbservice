@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"hbservice/src/net/net_core"
 	"hbservice/src/mservice/define"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -17,7 +18,10 @@ const (
 	GW_DIRECT_REQ	int = 0
 	GW_DIRECT_RESP	int = 1
 
-	SERVICE_NAME	string = "push"
+	// error code
+	ERR_USER_CONN_NOT_EXISTS			string = "user conn not exist"
+
+	SERVICE_NAME	string = "gateway"
 )
 
 //////////////////////////////////////////////////////
@@ -47,6 +51,11 @@ func CreateRespPacket(uid string, cmd string, body interface {}) *MGatewayPacket
 		},
 		Body:		body,
 	}
+}
+
+func GetPacketBody[T any](packet *MGatewayPacket) (res T, err error) {
+	 err = mapstructure.Decode(packet.Body, &res); 
+	 return res, err
 }
 
 //////////////////////////////////////////////////////
@@ -109,6 +118,8 @@ func (p *GWPacketHandle) RecvPacket(conn net.Conn, timeout_ms int) (net_core.Pac
 		if err := json.Unmarshal(bytes, &packet); err != nil {
 			return nil, err
 		}
+	} else {
+		return nil, err
 	}
 	return &packet, nil
 }

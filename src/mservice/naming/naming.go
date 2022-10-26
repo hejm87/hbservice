@@ -2,12 +2,14 @@ package naming
 
 import (
 	"fmt"
+	"log"
 	"time"
 	"sync"
 	"errors"
 	"strings"
 	"strconv"
 	"context"
+	"path/filepath"
 	"hbservice/src/util"
 	"hbservice/src/mservice/util"
 	"hbservice/src/mservice/define"
@@ -37,8 +39,8 @@ type ServiceChange struct {
 }
 
 // 服务发现数据格式:
-// key: {服务名}_{seq_id}
-// value: {host}:{port}
+// key:		{服务名}_{host}_{port}
+// value:	{seq_id}
 
 type Naming struct {
 	watch_cancels		map[string]context.CancelFunc
@@ -64,7 +66,7 @@ func GetInstance() *Naming {
 type ChangeCb func([]ServiceChange)
 
 func (p *Naming) Find(name string) (infos []ServiceInfo, err error) {
-	prefix := p.get_prefix(name)
+	prefix := p.get_name_dir(name) + "/" + name
 	result, err := mservice_util.GetEtcdInstance().GetWithPrefix(prefix)
 	if err != nil {
 		return infos, err
@@ -105,7 +107,8 @@ func (p *Naming) Subscribe(name string, cb ChangeCb) error {
 	ctx, cancel := context.WithCancel(context.TODO())
 	p.watch_cancels[name] = cancel
 	go func() {
-		mservice_util.GetEtcdInstance().Watch(ctx, name, true, watch_f)
+		prefix := fmt.Sprintf("%s/%s/%s", p.get_name_dir(name), name, name)
+		mservice_util.GetEtcdInstance().Watch(ctx, prefix, true, watch_f)
 	} ()
 	return nil
 }
@@ -131,7 +134,9 @@ func (p *Naming) Register(info ServiceInfo) error {
 
 	cfg := util.GetConfigValue[mservice_define.MServiceConfig]().Service
 	k, v := p.convert_service_info_to_str(info)
-	lease_id, err := mservice_util.GetEtcdInstance().PutWithTimeout(k, v, int64(cfg.KeepAliveTtl))
+
+	exists_ttl := 3 * cfg.KeepAliveTtl
+	lease_id, err := mservice_util.GetEtcdInstance().PutWithTimeout(k, v, int64(exists_ttl))
 	if err != nil {
 		return err
 	}
@@ -146,7 +151,6 @@ func (p *Naming) Register(info ServiceInfo) error {
 				mservice_util.GetEtcdInstance().KeepAlive(lease_id)
 			}
 		}
-		mservice_util.GetEtcdInstance().KeepAlive(lease_id)
 	} ()
 	return nil
 }
@@ -163,27 +167,27 @@ func (p *Naming) Deregister(service_id string) error {
 }
 
 func (p *Naming) convert_str_to_service_info(key string, value string) (service ServiceInfo, ok bool) {
-	keys := strings.Split(key, "_")
-	values := strings.Split(value, ":")
-	port, err := strconv.Atoi(values[1])
-	if len(keys) != 2 || len(values) != 2 || err != nil {
+	_, name_id := filepath.Split(key)
+	keys := strings.Split(name_id, "_")
+	port, err := strconv.Atoi(keys[2])
+	if len(keys) != 3 || err != nil {
 		return service, false
 	}
-	result := ServiceInfo {
+	service = ServiceInfo {
 		Name:		keys[0],
-		ServiceId:	key,
-		Host:		values[0],
+		ServiceId:	value,
+		Host:		keys[1],
 		Port:		port,
 	}
-	return result, true
+	return service, true
 }
 
 func (p *Naming) convert_service_info_to_str(info ServiceInfo) (k string, v string){
-	k = info.ServiceId
-	v = fmt.Sprintf("%s:%d", info.Host, info.Port)
+	k = fmt.Sprintf("%s/%s/%s_%s_%d", p.get_name_dir(info.Name), info.Name, info.Name, info.Host, info.Port)
+	v = info.ServiceId
 	return k, v
 }
 
-func (p *Naming) get_prefix(name string) string {
-	return kNameServiceDir + "/" + name + "/" + name
+func (p *Naming) get_name_dir(name string) string {
+	return kNameServiceDir + "/" + name
 }

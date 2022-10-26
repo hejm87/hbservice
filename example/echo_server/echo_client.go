@@ -25,7 +25,6 @@ func main() {
 	for i := 0; i < *clients; i++ {
 		go do_client(*host, *port)
 	}
-	flag.Parse()
 
 	var latest int32 = atomic.LoadInt32(&g_count)
 	for {

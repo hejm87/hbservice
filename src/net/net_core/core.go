@@ -8,11 +8,6 @@ type Packet interface {
 	ToStr() string
 }
 
-//type Agent interface {
-//	ID() string
-//	Push(Packet) error
-//}
-
 // 用于收发包
 type PacketHandle interface {
 	// param[1]: conn		net.Conn

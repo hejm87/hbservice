@@ -90,37 +90,6 @@ func (p *EchoLogicHandle) do_echo(body interface{}) (net_core.Packet, error) {
 	return resp_packet, nil
 }
 
-///////////////////////////////////////////////////////////
-//func main() {
-//	go func() {
-//		fmt.Printf("ready to listen 8000\n")
-//		http.ListenAndServe("0.0.0.0:8000", nil)
-//	} ()
-//
-//	var server_params []net_core.NetServerParam
-//	server_params = append(
-//		server_params, 
-//		net_core.NetServerParam {
-//			Name:	"echo",
-//			Host:	"",
-//			Port:	8080,
-//			LogicHandle:	&EchoLogicHandle {},
-//			PacketHandle:	&define.EchoPacketHandle {},
-//		},
-//	)
-//
-//	server := tcp_server.NetServer(server_params)
-//	go func(server net_core.NetServer) {
-//		server.Start()
-//	} (server)
-//
-//	select {
-//	case <- time.After(time.Second * 3600):
-//		fmt.Printf("tcp_server shutdown\n")
-//		server.Shutdown()
-//	}
-//}
-
 func main() {
 	server_params := get_server_params()
 	log.Printf("ready container.Run, server_params:%#v", server_params)

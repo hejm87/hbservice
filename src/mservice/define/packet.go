@@ -3,10 +3,12 @@ package mservice_define
 import (
 	"net"
 	"time"
+	"errors"
 	"encoding/json"
 	"encoding/binary"
 	"hbservice/src/util"
 	"hbservice/src/net/net_core"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -68,6 +70,8 @@ func (p *MPacketHandle) RecvPacket(conn net.Conn, timeout_ms int) (net_core.Pack
 		if err := json.Unmarshal(bytes, &packet); err != nil {
 			return nil, err
 		}
+	} else {
+		return nil, err
 	}
 	return &packet, nil
 }
@@ -79,8 +83,9 @@ func (p *MPacketHandle) SendPacket(conn net.Conn, packet net_core.Packet) error 
 ///////////////////////////////////////////////////////////////////////
 //						通用转包函数
 ///////////////////////////////////////////////////////////////////////
-func GetPacketBody[T any](packet MServicePacket) T {
-	return (packet.Body).(T)
+func GetPacketBody[T any](packet *MServicePacket) (res T, err error) {
+	 err = mapstructure.Decode(packet.Body, &res); 
+	 return res, err
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -101,8 +106,12 @@ func CommonRecvPacket(conn net.Conn, timeout_ms int) ([]byte, error) {
 
 	// read body content
 	bytes := make([]byte, body_size)
-	if _, err := util.NetRecvTimeout(conn, bytes, int(body_size), timeout); err != nil {
+	n, err := util.NetRecvTimeout(conn, bytes, int(body_size), timeout)
+	if err != nil {
 		return nil, err
+	}
+	if n == 0 {
+		return nil, errors.New("socket peer close")
 	}
 	return bytes, nil
 }
